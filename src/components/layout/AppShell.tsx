@@ -1,12 +1,11 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ClipboardList, FileStack, House, ListChecks, Plus, Sprout, Users } from "lucide-react";
+import { ClipboardList, FileStack, House, Plus, Sprout, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
 import { useAbbinamenti, useAziende, useColture, useDomande, usePraticaFile, usePratiche, useUffici, useVoci } from "../../lib/queries";
 import { riscontro, type Riscontro } from "../../lib/riscontro";
 import { ModalsCtx, UfficioCtx, type ModalsApi, type UfficioData } from "../../lib/ufficio";
-import { calcolaAttivita } from "../../lib/domain";
 import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
 import { Spinner } from "../ui/Spinner";
@@ -22,7 +21,6 @@ const NAV = [
   { to: "anagrafica", label: "Anagrafica", icon: Users },
   { to: "domande", label: "Domande", icon: ClipboardList },
   { to: "colture", label: "Colture", icon: Sprout },
-  { to: "da-fare", label: "Da fare", icon: ListChecks, badge: true },
   { to: "pratiche", label: "Pratiche e bandi", icon: FileStack },
 ];
 
@@ -81,7 +79,6 @@ export function AppShell() {
     nuovaDomanda: () => setNewDom(true),
   }), []);
 
-  const nTodo = useMemo(() => (data ? calcolaAttivita(data.pratiche, data.riscontri).filter((a) => a.urgente).length : 0), [data]);
 
   // scorciatoia "/" per la ricerca
   useEffect(() => {
@@ -124,7 +121,6 @@ export function AppShell() {
                       {isActive && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-2xl bg-brand-50 ring-1 ring-inset ring-brand-100" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
                       <n.icon size={20} className="relative" strokeWidth={isActive ? 2.3 : 2} />
                       <span className="relative flex-1">{n.label}</span>
-                      {n.badge && nTodo > 0 && <span className="relative h-6 min-w-[24px] px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold grid place-items-center tabular-nums">{nTodo}</span>}
                     </span>
                   )}
                 </NavLink>

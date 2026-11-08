@@ -39,7 +39,7 @@ Il motore è in `src/lib/analisi/`; le prove con dati fittizi si lanciano con `n
 1. **Nuova domanda** → si sceglie la pratica: tra quelle in uso, dal **catalogo dei tipi di domanda** (annuali e una tantum: DU, UMA, vendemmia, giacenza, SRA, SRB01, titoli, SRF01, SRE01, SRD01/02, RRV, ISMEA, ISI INAIL…) oppure creandone una nuova.
 2. Nella pagina della pratica, **passo 1**: si carica l'Excel delle **domande da fare** (il modello). **L'anagrafica non viene toccata**: l'elenco vive solo nella pratica (tabella `pratica_voci`). Si può modificare riga per riga (stato a mano, numero, data, esito, note, aggiungere o togliere nominativi), sostituire o integrare con un nuovo file, scaricare l'originale ed eliminare.
 3. **Passo 2**: si caricano uno o più Excel delle domande **fatte, stampate o in compilazione** (tabella `pratica_file`). Il riscontro (`src/lib/riscontro.ts`) abbina solo per persona: stesso CUAA **oppure** stesso nominativo (senza accenti, apostrofi, punteggiatura, forme societarie e in qualsiasi ordine di nome e cognome; con due omonimi nell'elenco vale solo il CUAA) mette il pallino a ogni riga dell'elenco: 🟢 fatta, 🔵 stampata, 🟠 in compilazione, 🔴 non fatta; vale lo stato più avanzato, e uno stato messo a mano ha la precedenza. Lo stato di ogni riga si ricava dalla colonna «stato», dalle colonne indizio (per esempio «Data stampa» → stampata, «Data rilascio» o «Protocollo» → fatta, «Data compilazione» o «Bozza» → in compilazione) o da una parola di stato scritta in una cella; le righe senza nessuno stato riconoscibile restano **non fatte** (si può indicare a mano cosa contiene il file). L'elenco da fare parte sempre tutto «non fatto»: lo stato scritto nell'elenco si usa solo se lo si attiva esplicitamente al caricamento. I nominativi «fuori elenco» vengono segnalati e si possono aggiungere all'elenco. Ogni file si può scaricare o eliminare (anche i vecchi, in blocco): il riscontro si ricalcola subito.
-4. Chi resta da fare finisce in **Da fare**, filtrabile per pratica.
+4. Tutto si gestisce dalla pagina della pratica (o da **Domande**): filtro «Non fatte», stato a mano, esportazione.
 
 Importi, pagamenti e quota servizio non fanno parte del gestionale.
 
@@ -51,7 +51,6 @@ Ogni elenco ha ricerca, filtri, «seleziona tutti» ed esportazione in Excel; la
 - **Pratiche e bandi**: filtri per tipo, attive, senza elenco, in scadenza, scadute. Azioni: attiva, disattiva, esporta, elimina.
 - **Pagina della pratica**: filtro per stato o «stato a mano»; azioni: imposta stato (o torna automatico dai file), esporta, togli dall'elenco; file delle domande fatte eliminabili in blocco; fuori elenco aggiungibili in blocco.
 - **Domande**: stesso elenco con il riscontro, per pratica.
-- **Da fare**: ricerca, cambia stato anche su pratiche diverse, esporta.
 - **Colture** e **documenti** dell'azienda: elimina ed esporta in blocco.
 
 ## Riconoscimento degli Excel

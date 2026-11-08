@@ -1,7 +1,6 @@
 import type { Abbinamento, Azienda, Documento, Domanda, Esito, Pratica, StatoDomanda } from "./types";
 import { eta } from "./cf";
 import { daysFromToday, parseISO } from "./format";
-import type { Riscontro, VoceRiscontro } from "./riscontro";
 
 export const STATI: Record<StatoDomanda, { label: string; breve: string; color: string; bg: string; text: string; ring: string; desc: string }> = {
   N: { label: "Non fatta", breve: "Da fare", color: "#DC2626", bg: "bg-red-50", text: "text-red-700", ring: "ring-red-200", desc: "Nessuna domanda avviata" },
@@ -114,38 +113,6 @@ export const KIT = [
   { l: "Informativa privacy", t: (d: Documento) => d.tipo === "Informativa privacy" },
   { l: "Visura camerale", t: (d: Documento) => d.tipo === "Visura camerale", soloPG: true },
 ];
-
-// ---------------- Attività "Da fare" ----------------
-export type TipoAttivita = "presentare" | "completare" | "rilasciare" | "riesame";
-export interface Attivita {
-  tipo: TipoAttivita; voce: VoceRiscontro; pratica: Pratica; priorita: number; urgente: boolean; dettaglio: string;
-}
-
-export const TIPI_ATTIVITA: Record<TipoAttivita, { label: string; desc: string; color: string }> = {
-  presentare: { label: "Da presentare", desc: "Nell'elenco ma non ancora fatte", color: "#DC2626" },
-  completare: { label: "Da completare", desc: "Domande in compilazione", color: "#EA8C0C" },
-  rilasciare: { label: "Da rilasciare", desc: "Stampate, da firmare e rilasciare", color: "#2563EB" },
-  riesame: { label: "Non ammesse", desc: "Senza riesame o ricorso", color: "#B91C1C" },
-};
-
-/** Attività aperte, calcolate dal riscontro tra l'elenco da fare e i file delle domande fatte. */
-export function calcolaAttivita(pratiche: Pratica[], riscontri: Map<string, Riscontro>): Attivita[] {
-  const out: Attivita[] = [];
-  for (const p of pratiche.filter((x) => x.attivo)) {
-    const r = riscontri.get(p.id);
-    if (!r) continue;
-    const giorni = daysFromToday(p.scadenza);
-    const scaduta = giorni != null && giorni < 0;
-    const vicina = giorni != null && giorni >= 0 && giorni <= 15;
-    for (const v of r.voci) {
-      if (v.stato === "N" && !scaduta) out.push({ tipo: "presentare", voce: v, pratica: p, priorita: giorni ?? 999, urgente: vicina, dettaglio: giorni != null ? `Scade ${giorni === 0 ? "oggi" : `tra ${giorni} gg`}` : "Senza scadenza" });
-      if (v.stato === "C") out.push({ tipo: "completare", voce: v, pratica: p, priorita: giorni ?? 500, urgente: vicina, dettaglio: "In compilazione" });
-      if (v.stato === "S") out.push({ tipo: "rilasciare", voce: v, pratica: p, priorita: giorni ?? 400, urgente: vicina, dettaglio: v.numero ? `N. ${v.numero}` : "Stampata" });
-      if (v.stato === "R" && v.esito === "X" && !v.voce.riesame) out.push({ tipo: "riesame", voce: v, pratica: p, priorita: 0, urgente: true, dettaglio: v.voce.motivi[0] ?? "Motivo non indicato" });
-    }
-  }
-  return out.sort((x, y) => Number(y.urgente) - Number(x.urgente) || x.priorita - y.priorita);
-}
 
 export const CATEGORIE_COLTURE = ["Arboree", "Seminativi", "Orticole", "Foraggere", "Vivai e fiori", "Altro"] as const;
 export const COLORI_COLTURE = ["#7A9A3A", "#8E3B5B", "#D9A93B", "#4E9A5B", "#D9483B", "#E07A3F", "#EE8F6B", "#8A6A4A", "#3E8E7E", "#5B7DB1", "#9AAE4A", "#B65E86"];

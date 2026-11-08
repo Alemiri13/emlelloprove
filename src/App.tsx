@@ -9,7 +9,6 @@ import { DomandePage } from "./pages/Domande";
 import { ColturePage } from "./pages/Colture";
 import { PratichePage } from "./pages/Pratiche";
 import { PraticaDettaglioPage } from "./pages/PraticaDettaglio";
-import { DaFarePage } from "./pages/DaFare";
 import { Spinner } from "./components/ui/Spinner";
 import type { ReactNode } from "react";
 
@@ -33,7 +32,7 @@ export function App() {
         <Route path="colture" element={<ColturePage />} />
         <Route path="pratiche" element={<PratichePage />} />
         <Route path="pratiche/:id" element={<PraticaDettaglioPage />} />
-        <Route path="da-fare" element={<DaFarePage />} />
+        <Route path="*" element={<Navigate to="." replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/uffici" replace />} />
     </Routes>

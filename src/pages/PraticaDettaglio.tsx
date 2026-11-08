@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowLeft, CalendarClock, Check, Download, FileSpreadsheet, ListChecks, ListPlus, Lock, Pencil, Replace, Scale, Trash2, Upload, UserRoundX } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Download, FileSpreadsheet, ListPlus, Lock, Pencil, Replace, Scale, Trash2, Upload, UserRoundX } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
@@ -153,14 +153,7 @@ export function PraticaDettaglioPage() {
       {/* riscontro */}
       <div id="elenco" className="mt-6 scroll-mt-24">
         {modello || nVoci ? (
-          <>
-            <ElencoVoci pratica={p} r={r} />
-            {r && r.conteggi.N > 0 && (
-              <button onClick={() => nav(`/u/${ufficio.id}/da-fare?pratica=${p.id}`)} className="mt-4 inline-flex items-center gap-2 text-[13.5px] font-semibold text-brand-800 hover:text-brand-950">
-                <ListChecks size={16} /> {r.conteggi.N} non fatte in «Da fare»
-              </button>
-            )}
-          </>
+          <ElencoVoci pratica={p} r={r} />
         ) : null}
       </div>
 
