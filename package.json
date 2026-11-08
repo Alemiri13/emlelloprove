@@ -1,14 +1,14 @@
 {
   "name": "cia-gestionale",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test:analisi": "npx -y tsx@4.19.2 src/lib/excel.test.ts && npx -y tsx@4.19.2 src/lib/analisi/classificatore.test.ts && npx -y tsx@4.19.2 src/lib/analisi/bando.test.ts && npx -y tsx@4.19.2 src/lib/riscontro.test.ts"
+    "test:analisi": "npx -y tsx@4.19.2 src/lib/excel.test.ts && npx -y tsx@4.19.2 src/lib/analisi/classificatore.test.ts && npx -y tsx@4.19.2 src/lib/analisi/bando.test.ts && npx -y tsx@4.19.2 src/lib/riscontro.test.ts && npx -y tsx@4.19.2 src/lib/brogliaccio.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "5.1.1",

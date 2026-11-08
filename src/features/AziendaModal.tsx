@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Sparkles, Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight,
+  Sparkles, Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight, FileSpreadsheet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
@@ -22,6 +22,7 @@ import { Skeleton } from "../components/ui/Spinner";
 import { DocumentoModal } from "./DocumentoModal";
 import { CaricamentoIntelligente } from "./CaricamentoIntelligente";
 import { DocumentoPreview } from "./DocumentoPreview";
+import { CaricaBrogliaccio } from "./CaricaBrogliaccio";
 import { SelezionaTutti, useSelezione } from "../components/ui/Bulk";
 import type { Azienda, Documento } from "../lib/types";
 import { chiaveCuaa } from "../lib/riscontro";
@@ -231,6 +232,7 @@ function ColtureTab({ a }: { a: Azienda }) {
   const { toast } = useFeedback();
   const [nuova, setNuova] = useState<string | null>(null);
   const [sup, setSup] = useState<number | null>(null);
+  const [brogliaccio, setBrogliaccio] = useState(false);
   const list = (a.azienda_colture ?? []).slice().sort((x, y) => (y.superficie_ha ?? 0) - (x.superficie_ha ?? 0));
   const tot = list.reduce((s, c) => s + (c.superficie_ha ?? 0), 0);
   const used = new Set(list.map((c) => c.coltura_id));
@@ -244,6 +246,15 @@ function ColtureTab({ a }: { a: Azienda }) {
 
   return (
     <div className="space-y-5">
+      <button onClick={() => setBrogliaccio(true)} className="w-full card p-5 flex items-center gap-4 text-left hover:shadow-lift hover:border-brand-200 transition group">
+        <span className="h-12 w-12 rounded-2xl bg-brand-700 text-white grid place-items-center shrink-0"><FileSpreadsheet size={22} /></span>
+        <span className="flex-1">
+          <span className="block font-extrabold text-[16px] tracking-tight">Carica il brogliaccio</span>
+          <span className="block text-[13px] text-ink-500">Dall'Excel del fascicolo ricavo in automatico colture e superfici dell'azienda</span>
+        </span>
+        <ChevronRight size={20} className="text-ink-300 group-hover:text-brand-700" />
+      </button>
+      <CaricaBrogliaccio open={brogliaccio} onClose={() => setBrogliaccio(false)} azienda={a} />
       <div className="card p-6">
         <div className="flex items-end justify-between mb-3">
           <div>

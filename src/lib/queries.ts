@@ -615,3 +615,54 @@ export function useEliminaVoci() {
     onSuccess: () => inv("voci"),
   });
 }
+
+// =====================================================================
+// Brogliaccio: colture e superfici dell'azienda lette dal file
+// =====================================================================
+export interface VoceBrogliaccio { coltura_id: string | null; nuova?: { nome: string; categoria: string; colore: string }; superficie_ha: number; varieta: string | null }
+
+export function useApplicaBrogliaccio() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ azienda_id, voci, sostituisci, sau, archivia }: { azienda_id: string; voci: VoceBrogliaccio[]; sostituisci: boolean; sau: number | null; archivia?: { file: File; titolo: string } }) => {
+      // 1. nuove colture nel catalogo (una per nome)
+      const create = new Map<string, string>();
+      for (const v of voci) {
+        if (v.coltura_id || !v.nuova) continue;
+        const k = v.nuova.nome.trim().toLowerCase();
+        if (create.has(k)) continue;
+        const esistente = check(await supabase.from("colture").select("id").ilike("nome", v.nuova.nome.trim()).limit(1)) as { id: string }[];
+        create.set(k, esistente[0]?.id ?? (check(await supabase.from("colture").insert(v.nuova).select("id").single()) as { id: string }).id);
+      }
+      // 2. somma per coltura
+      const perColtura = new Map<string, { superficie_ha: number; varieta: string[] }>();
+      for (const v of voci) {
+        const id = v.coltura_id ?? (v.nuova ? create.get(v.nuova.nome.trim().toLowerCase()) : undefined);
+        if (!id) continue;
+        const x = perColtura.get(id) ?? { superficie_ha: 0, varieta: [] };
+        x.superficie_ha += v.superficie_ha;
+        if (v.varieta) x.varieta.push(v.varieta);
+        perColtura.set(id, x);
+      }
+      // 3. sostituzione o aggiornamento delle colture dell'azienda
+      if (sostituisci) {
+        const attuali = check(await supabase.from("azienda_colture").select("id, coltura_id").eq("azienda_id", azienda_id)) as { id: string; coltura_id: string }[];
+        const via = attuali.filter((c) => !perColtura.has(c.coltura_id)).map((c) => c.id);
+        if (via.length) await aBlocchi(via, async (p) => { check(await supabase.from("azienda_colture").delete().in("id", p)); });
+      }
+      const righe = [...perColtura.entries()].map(([coltura_id, x]) => ({ azienda_id, coltura_id, superficie_ha: Math.round(x.superficie_ha * 10000) / 10000, varieta: x.varieta.join(", ").slice(0, 300) || null }));
+      if (righe.length) check(await supabase.from("azienda_colture").upsert(righe, { onConflict: "azienda_id,coltura_id" }));
+      // 4. SAU
+      if (sau != null) check(await supabase.from("aziende").update({ sau_ha: Math.round(sau * 10000) / 10000 }).eq("id", azienda_id));
+      // 5. archivio del file
+      if (archivia) {
+        const ext = archivia.file.name.includes(".") ? archivia.file.name.split(".").pop() : "xlsx";
+        const path = `${azienda_id}/${crypto.randomUUID()}.${ext}`;
+        const up = await supabase.storage.from("documenti").upload(path, archivia.file, { contentType: archivia.file.type || undefined });
+        if (!up.error) check(await supabase.from("documenti").insert({ azienda_id, categoria: "fascicolo", tipo: "Piano di coltivazione", titolo: archivia.titolo, data_doc: new Date().toISOString().slice(0, 10), storage_path: path, file_name: archivia.file.name, mime: archivia.file.type, size: archivia.file.size }));
+      }
+      return { colture: righe.length, nuove: create.size };
+    },
+    onSuccess: () => inv("aziende", "colture", "documenti", "storico"),
+  });
+}

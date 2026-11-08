@@ -88,3 +88,7 @@ Consigliato: disattivare le registrazioni pubbliche in Authentication → Provid
 
 Le regole del gestionale originale sono preservate (vedi `src/lib/domain.ts` e il trigger `private.normalizza_domanda`):
 stati R/S/C/N, esiti con motivi e riesame, pagamento calcolato dagli importi, quota servizio CIA proposta alla prima rilascio, abbinamento automatico azienda ↔ pratica sui requisiti con inclusioni/esclusioni manuali.
+
+## Brogliaccio (colture dell'azienda)
+
+Nella scheda dell'azienda, tab **Colture → Carica il brogliaccio**: dall'Excel del fascicolo (`src/lib/brogliaccio.ts`) si riconoscono la colonna della coltura (occupazione / uso del suolo / prodotto, con destinazione, uso e varietà) e quella della superficie (utilizzata > condotta > catastale; ettari, metri quadri, «ha.aa.ca» o colonne Ha/Are/Ca). Le superfici si sommano per coltura e si abbinano al catalogo (sinonimi: uliveto → Olivo, vigneto → Vite da vino, frumento duro → Grano duro…); tare, fabbricati e incolti non si contano. Si può correggere ogni abbinamento, creare colture nuove, sostituire le colture attuali, aggiornare la SAU e archiviare il file tra i documenti. Se il CUAA scritto nel file è diverso da quello dell'azienda compare un avviso.
