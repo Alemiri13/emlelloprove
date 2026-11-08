@@ -8,3 +8,4 @@ dist/
 # dati personali dell'export originale: mai nel repository
 data/
 seed*.sql
+*.tsbuildinfo
