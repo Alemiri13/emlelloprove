@@ -15,6 +15,7 @@ import { VoceModal } from "../../features/pratica/VoceModal";
 import { NuovaAziendaWizard } from "../../features/NuovaAziendaWizard";
 import { NuovaDomanda } from "../../features/NuovaDomanda";
 import { hasOpenModal } from "../ui/Modal";
+import { ErroreApp } from "../ErroreApp";
 
 const NAV = [
   { to: "", label: "Home", icon: House, end: true },
@@ -155,7 +156,7 @@ export function AppShell() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               >
-                {data && <Outlet />}
+                {data && <ErroreApp compatto resetKey={loc.pathname}><Outlet /></ErroreApp>}
               </motion.div>
             </AnimatePresence>
           </main>
