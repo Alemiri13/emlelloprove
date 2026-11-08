@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Sparkles, ArrowRight, ClipboardList, FilePlus2, FileStack, Sprout, UserPlus, Users } from "lucide-react";
+import { Sparkles, ArrowRight, ClipboardList, FilePlus2, FileStack, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { CaricamentoIntelligente } from "../features/CaricamentoIntelligente";
 import { useNavigate } from "react-router-dom";
@@ -7,16 +7,15 @@ import { useAuth } from "../lib/auth";
 import { useModals, useUfficio } from "../lib/ufficio";
 
 export function HomePage() {
-  const { ufficio, aziende, pratiche, colture } = useUfficio();
+  const { ufficio, aziende, pratiche } = useUfficio();
   const { profilo } = useAuth();
   const { nuovaAzienda, nuovaDomanda } = useModals();
   const nav = useNavigate();
   const [smart, setSmart] = useState(false);
 
   const tiles = [
-    { to: "anagrafica", icon: Users, title: "Anagrafica", desc: "Aziende, contatti, terreni e documenti", meta: `${aziende.length} aziende`, big: true, wide: false },
+    { to: "anagrafica", icon: Users, title: "Anagrafica", desc: "Aziende, contatti, colture (brogliaccio) e documenti", meta: `${aziende.length} aziende`, big: true, wide: false },
     { to: "domande", icon: ClipboardList, title: "Domande", desc: "Fatte, in corso e da fare per ogni pratica", meta: `${pratiche.filter((p) => p.attivo).length} pratiche attive`, big: true },
-    { to: "colture", icon: Sprout, title: "Colture", desc: "Cosa si coltiva e dove", meta: `${colture.length} colture` },
     { to: "pratiche", icon: FileStack, title: "Pratiche e bandi", desc: "Elenchi da fare e riscontro delle fatte", meta: "Comuni a tutti gli uffici", wide: true },
   ];
 
@@ -45,7 +44,7 @@ export function HomePage() {
             transition={{ delay: 0.12 + i * 0.05, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
             whileHover={{ y: -4 }}
             whileTap={{ scale: 0.985 }}
-            className={`group relative text-left bg-white rounded-[28px] border border-ink-100 p-7 shadow-card hover:shadow-lift transition-shadow duration-300 overflow-hidden ${t.big ? "xl:col-span-3 min-h-[230px]" : t.wide ? "xl:col-span-4 min-h-[200px]" : "xl:col-span-2 min-h-[200px]"}`}
+            className={`group relative text-left bg-white rounded-[28px] border border-ink-100 p-7 shadow-card hover:shadow-lift transition-shadow duration-300 overflow-hidden ${t.big ? "xl:col-span-3 min-h-[230px]" : t.wide ? "xl:col-span-6 min-h-[180px]" : "xl:col-span-2 min-h-[200px]"}`}
           >
             <div className="absolute right-0 bottom-0 h-40 w-40 rounded-tl-[80px] bg-gradient-to-tl from-brand-50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative flex flex-col h-full">

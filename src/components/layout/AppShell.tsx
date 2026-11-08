@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ClipboardList, FileStack, House, Plus, Sprout, Users } from "lucide-react";
+import { ClipboardList, FileStack, House, Plus, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
@@ -20,7 +20,6 @@ const NAV = [
   { to: "", label: "Home", icon: House, end: true },
   { to: "anagrafica", label: "Anagrafica", icon: Users },
   { to: "domande", label: "Domande", icon: ClipboardList },
-  { to: "colture", label: "Colture", icon: Sprout },
   { to: "pratiche", label: "Pratiche e bandi", icon: FileStack },
 ];
 

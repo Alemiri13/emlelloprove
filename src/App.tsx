@@ -6,7 +6,6 @@ import { AppShell } from "./components/layout/AppShell";
 import { HomePage } from "./pages/Home";
 import { AnagraficaPage } from "./pages/Anagrafica";
 import { DomandePage } from "./pages/Domande";
-import { ColturePage } from "./pages/Colture";
 import { PratichePage } from "./pages/Pratiche";
 import { PraticaDettaglioPage } from "./pages/PraticaDettaglio";
 import { Spinner } from "./components/ui/Spinner";
@@ -29,7 +28,6 @@ export function App() {
         <Route index element={<HomePage />} />
         <Route path="anagrafica" element={<AnagraficaPage />} />
         <Route path="domande" element={<DomandePage />} />
-        <Route path="colture" element={<ColturePage />} />
         <Route path="pratiche" element={<PratichePage />} />
         <Route path="pratiche/:id" element={<PraticaDettaglioPage />} />
         <Route path="*" element={<Navigate to="." replace />} />

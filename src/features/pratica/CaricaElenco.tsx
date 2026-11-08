@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronDown, CircleDashed, FileSpreadsheet, PenLine, Printer, Send, Trash2, UploadCloud, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, CircleDashed, FileSpreadsheet, ListPlus, PenLine, Printer, Send, Trash2, UploadCloud, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
@@ -15,7 +15,9 @@ import {
 } from "../../lib/excel";
 import { useAggiungiVoci, useCaricaFatte, useCaricaModello, type NuovoFile } from "../../lib/queries";
 import { chiaveCuaa, chiaveNome, riscontro, type Fonte } from "../../lib/riscontro";
-import type { Pratica, PraticaFile, RigaFile, StatoDomanda } from "../../lib/types";
+import type { Pratica, PraticaFile, RigaFile, StatoDomanda, Voce } from "../../lib/types";
+
+type Sezione = "file" | "no" | StatoDomanda;
 import { Avanzamento, Numero } from "../import/Comuni";
 import { NOME_STATO } from "./ElencoVoci";
 
@@ -90,6 +92,9 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const [modo, setModo] = useState<"sostituisci" | "integra">("sostituisci");
   // l'elenco da fare parte sempre «non fatto»: lo stato scritto nel file si usa solo se lo attivi
   const [usaStati, setUsaStati] = useState(false);
+  // nominativi dei file delle fatte che non sono nell'elenco principale: si decide prima di salvare
+  const [decisione, setDecisione] = useState<"conferma" | "aggiungi" | null>(null);
+  const [sezioni, setSezioni] = useState<Record<string, Sezione>>({});
   const [lavoro, setLavoro] = useState<string | null>(null);
   const [fatto, setFatto] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -100,7 +105,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const precedente = miei.find((f) => f.tipo === "modello") ?? null;
   const vociPratica = useMemo(() => voci.filter((v) => v.pratica_id === pratica.id), [voci, pratica.id]);
 
-  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("N"); setModo("sostituisci"); setUsaStati(false); setLavoro(null); setFatto(false); } }, [open]);
+  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("N"); setModo("sostituisci"); setUsaStati(false); setDecisione(null); setSezioni({}); setLavoro(null); setFatto(false); } }, [open]);
 
   const aggiungi = async (lista: FileList | File[]) => {
     const nuovi = [...lista].slice(0, isModello ? 1 : 20);
@@ -162,6 +167,20 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     return { nuovi, prima, dopo, cambiano, fuoriNuovi };
   }, [isModello, parsed, parsedFatte, vociPratica, miei, pratica.id, ufficio.id]);
 
+  // nominativi da aggiungere all'elenco (scelta dell'utente) e riscontro finale che li comprende
+  const daAggiungere = useMemo(() => (anteprimaFatte && decisione === "aggiungi"
+    ? anteprimaFatte.fuoriNuovi.filter((x) => (sezioni[chiaveRiga(x.riga)] ?? "file") !== "no")
+    : []), [anteprimaFatte, decisione, sezioni]);
+  const finale = useMemo(() => {
+    if (!anteprimaFatte) return null;
+    if (!daAggiungere.length) return anteprimaFatte.dopo;
+    const finte = daAggiungere.map((x, i) => {
+      const sz = sezioni[chiaveRiga(x.riga)] ?? "file";
+      return { id: "agg" + i, pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: null, cuaa: x.riga.cuaa, denominazione: x.riga.denominazione, extra: {}, stato_manuale: sz === "file" ? null : sz, numero: null, data_presentazione: null, esito: null, motivi: [], riesame: null, note: null, ordine: 0, created_at: "", updated_at: "", updated_by: null } as Voce;
+    });
+    return riscontro([...vociPratica, ...finte], [...miei, ...anteprimaFatte.nuovi]);
+  }, [anteprimaFatte, daAggiungere, sezioni, vociPratica, miei, pratica.id, ufficio.id]);
+
   const esegui = async () => {
     try {
       if (isModello && anteprimaModello && parsed[0]) {
@@ -177,6 +196,14 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
       } else if (!isModello) {
         setLavoro("Salvo i file e faccio il riscontro…");
         await caricaFatte.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, nuovi: parsedFatte.map(({ f, righe, colonne }) => ({ file: f.file, righe, colonne })) });
+        if (daAggiungere.length) {
+          setLavoro(`Aggiungo ${daAggiungere.length} nominativi all'elenco…`);
+          const base = vociPratica.reduce((m, v) => Math.max(m, v.ordine), 0) + 1;
+          await aggiungiVoci.mutateAsync(daAggiungere.map((x, i) => {
+            const sz = sezioni[chiaveRiga(x.riga)] ?? "file";
+            return { pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: precedente?.id ?? null, cuaa: x.riga.cuaa, denominazione: x.riga.denominazione, stato_manuale: sz === "file" || sz === "no" ? null : sz, note: `Aggiunto dal file «${x.file.nome}»`, ordine: base + i };
+          }));
+        }
       }
       setFatto(true);
     } catch (e) { toast("error", "Caricamento non riuscito", (e as Error).message); }
@@ -276,21 +303,71 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     ) : null) : (fa ? (
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {(["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={fa.dopo.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
+          {(["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={(finale ?? fa.dopo).conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
         </div>
+        {daAggiungere.length > 0 && <p className="text-[13px] text-brand-800 flex gap-2"><Check size={16} className="shrink-0 mt-0.5" />Aggiungo all'elenco {daAggiungere.length === 1 ? "1 nominativo che non c'era" : `${daAggiungere.length} nominativi che non c'erano`}.</p>}
+        {decisione === "conferma" && fa.fuoriNuovi.length > 0 && <p className="text-[13px] text-amber-800 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" />{fa.fuoriNuovi.length} nominativi non presenti nell'elenco restano fuori (li ritrovi nella pagina della pratica).</p>}
         <div className="rounded-2xl ring-1 ring-ink-100 divide-y divide-ink-100 text-[14px]">
           {fa.nuovi.map((nf) => {
             const st = fa.dopo.perFile.get(nf.id)!;
             return <RigaInfo key={nf.id} l={`«${nf.nome}»: righe trovate nell'elenco`} v={st.abbinate} />;
           })}
           <RigaInfo l="Righe dell'elenco che cambiano stato" v={fa.cambiano} />
-          {fa.fuoriNuovi.length > 0 && <RigaInfo l="Nominativi fuori elenco (non sono tra le domande da fare)" v={fa.fuoriNuovi.length} />}
+          {fa.fuoriNuovi.length - daAggiungere.length > 0 && <RigaInfo l="Nominativi che restano fuori elenco" v={fa.fuoriNuovi.length - daAggiungere.length} />}
         </div>
         {!vociPratica.length && <p className="text-[13px] text-amber-800 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" />Non c'è ancora l'elenco delle domande da fare: i file vengono salvati e il riscontro si farà quando lo carichi.</p>}
-        <FuoriElenco fuori={fa.fuoriNuovi} />
+        <FuoriElenco fuori={fa.fuoriNuovi.filter((x) => !daAggiungere.includes(x))} />
       </div>
     ) : null),
   };
+
+  const fuori = fa && vociPratica.length ? fa.fuoriNuovi : [];
+  const fuoriStep: WizardStep | null = !isModello && fuori.length ? {
+    key: "fuori", title: "Non in elenco", canNext: decisione !== null,
+    question: fuori.length === 1 ? "1 nominativo non è nell'elenco delle domande da fare" : `${fuori.length} nominativi non sono nell'elenco delle domande da fare`,
+    hint: "Compaiono nei file che stai caricando ma non nel file principale (l'elenco da fare). Prima di salvare, scegli cosa fare.",
+    content: (
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 gap-2.5">
+          <ChoiceCard selected={decisione === "conferma"} onClick={() => setDecisione("conferma")} icon={<Check size={18} />} title="Conferma lo stesso" desc="Salvo i file senza aggiungerli: restano segnalati come «fuori elenco»." />
+          <ChoiceCard selected={decisione === "aggiungi"} onClick={() => setDecisione("aggiungi")} icon={<ListPlus size={18} />} title="Aggiungili all'elenco" desc="Entrano nell'elenco della pratica, nella sezione che scegli." />
+        </div>
+        {decisione === "aggiungi" && (
+          <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-600">
+            Imposta per tutti:
+            {(["file", "R", "S", "C", "N"] as ("file" | StatoDomanda)[]).map((sz) => (
+              <button key={sz} type="button" onClick={() => setSezioni(Object.fromEntries(fuori.map((x) => [chiaveRiga(x.riga), sz])))}
+                className="h-8 px-3 rounded-lg ring-1 ring-ink-200 hover:bg-ink-50 font-semibold flex items-center gap-1.5">
+                {sz !== "file" && <span className="h-2 w-2 rounded-full" style={{ background: STATI[sz].color }} />}{sz === "file" ? "Come nel file" : NOME_STATO[sz]}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="rounded-2xl ring-1 ring-amber-200 bg-amber-50/40 divide-y divide-amber-100 max-h-[340px] overflow-y-auto">
+          {fuori.map((x) => {
+            const k = chiaveRiga(x.riga);
+            const sz = sezioni[k] ?? "file";
+            return (
+              <div key={k} className={clsx("px-4 py-2.5 flex flex-wrap items-center gap-3", decisione === "aggiungi" && sz === "no" && "opacity-50")}>
+                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: STATI[x.stato].color }} />
+                <div className="flex-1 min-w-[180px]">
+                  <div className="font-semibold text-[14px]">{titleCase(x.riga.denominazione ?? "") || "—"} <span className="font-normal text-ink-500">non è presente nel file principale</span></div>
+                  <div className="text-[12px] text-ink-500"><span className="font-mono">{x.riga.cuaa ?? "senza CUAA"}</span> · nel file «{x.file.nome}» come {NOME_STATO[x.stato].toLowerCase()}</div>
+                </div>
+                {decisione === "aggiungi" && (
+                  <Select size="sm" className="w-56" value={sz} onChange={(v) => setSezioni((all) => ({ ...all, [k]: v as Sezione }))} options={[
+                    { value: "file", label: `Come nel file (${NOME_STATO[x.stato].toLowerCase()})` },
+                    ...(["R", "S", "C", "N"] as StatoDomanda[]).map((st) => ({ value: st, label: NOME_STATO[st], icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[st].color }} /> })),
+                    { value: "no", label: "Non aggiungere" },
+                  ]} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ),
+  } : null;
 
   const steps: WizardStep[] = fatto ? [{
     key: "fatto", title: "Fatto", question: isModello ? "Elenco delle domande da fare salvato" : "File caricati, riscontro aggiornato",
@@ -298,10 +375,10 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     content: (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {isModello && m ? <Numero v={modo === "integra" && precedente ? m.nuoviDaIntegrare.length : m.unici.length} l={modo === "integra" && precedente ? "Nominativi aggiunti" : "Nominativi nell'elenco"} tone="green" />
-          : fa && (["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={fa.dopo.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
+          : fa && (["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={(finale ?? fa.dopo).conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
       </div>
     ),
-  }] : lavoro ? [{ key: "lavoro", title: "Salvataggio", question: "Salvataggio in corso…", canNext: false, content: <Avanzamento msg={lavoro} p={0.6} /> }] : [fileStep, colonneStep, riepilogoStep];
+  }] : lavoro ? [{ key: "lavoro", title: "Salvataggio", question: "Salvataggio in corso…", canNext: false, content: <Avanzamento msg={lavoro} p={0.6} /> }] : [fileStep, colonneStep, ...(fuoriStep ? [fuoriStep] : []), riepilogoStep];
 
   return (
     <Wizard
