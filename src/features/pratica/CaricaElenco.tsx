@@ -3,14 +3,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Wizard, type WizardStep } from "../../components/ui/Wizard";
-import { ChoiceCard } from "../../components/ui/Inputs";
+import { ChoiceCard, Toggle } from "../../components/ui/Inputs";
 import { Select } from "../../components/ui/Select";
 import { useFeedback } from "../../components/ui/Feedback";
 import { useUfficio } from "../../lib/ufficio";
 import { STATI } from "../../lib/domain";
 import { fileSize, titleCase } from "../../lib/format";
 import {
-  analizzaFile, CAMPI_DOMANDA, cuaaDa, data, esito as esitoDa, leggiExcel, stato as statoDa, testo, valore,
+  analizzaFile, CAMPI_DOMANDA, cuaaDa, data, esito as esitoDa, indiziStato, leggiExcel, statoRiga, testo, valore,
   type Analisi, type KDomanda,
 } from "../../lib/excel";
 import { useAggiungiVoci, useCaricaFatte, useCaricaModello, type NuovoFile } from "../../lib/queries";
@@ -28,6 +28,8 @@ function righeDa(f: FileCaricato): { righe: RigaFile[]; colonne: Record<string, 
   const a = f.analisi[f.scelta];
   const colonne: Record<string, string> = {};
   for (const [k, m] of Object.entries(a.mappa)) if (m) colonne[k] = a.intestazioni[(m as { col: number }).col];
+  const indizi = indiziStato(a);
+  indizi.forEach((i) => { colonne[`indizio_${i.stato}_${i.col}`] = i.intestazione; });
   const righe = a.righe.map((r, i): RigaFile => {
     const grezzo = valore(a, r, "cuaa");
     const c = cuaaDa(grezzo);
@@ -35,7 +37,7 @@ function righeDa(f: FileCaricato): { righe: RigaFile[]; colonne: Record<string, 
       riga: i + 2 + (a.rigaIntestazione || 0),
       cuaa: c?.cuaa ?? (testo(grezzo)?.toUpperCase().replace(/\s+/g, "") || null),
       denominazione: testo(valore(a, r, "denominazione")),
-      stato: a.mappa.stato ? statoDa(valore(a, r, "stato")) : null,
+      stato: statoRiga(a, r, indizi),
       numero: testo(valore(a, r, "numero")),
       data: data(valore(a, r, "data_presentazione")),
       esito: esitoDa(valore(a, r, "esito")),
@@ -43,6 +45,28 @@ function righeDa(f: FileCaricato): { righe: RigaFile[]; colonne: Record<string, 
     };
   }).filter((x) => x.cuaa || x.denominazione);
   return { righe, colonne };
+}
+
+/** Se non ho trovato né CUAA né nominativo, provo a dedurli dal contenuto delle colonne. */
+function completaMappa(a: Analisi<KDomanda>): Analisi<KDomanda> {
+  if (a.mappa.cuaa || a.mappa.denominazione || (a.mappa.cognome && a.mappa.nome)) return a;
+  const mappa = { ...a.mappa };
+  const usate = new Set(Object.values(mappa).map((m) => m!.col));
+  const campione = a.righe.slice(0, 300);
+  let bestC = { col: -1, q: 0 }, bestN = { col: -1, q: 0 };
+  a.intestazioni.forEach((_, col) => {
+    if (usate.has(col)) return;
+    const val = campione.map((r) => r[col]).filter((v) => v != null && String(v).trim());
+    if (!val.length) return;
+    const qc = val.filter((v) => cuaaDa(v)).length / val.length;
+    const testi = val.filter((v) => typeof v === "string" && /[a-zà-ÿ]{2,}/i.test(v) && !/\d{3,}/.test(v));
+    const qn = (testi.length / val.length) * (new Set(testi.map(String)).size / Math.max(1, testi.length));
+    if (qc > bestC.q) bestC = { col, q: qc };
+    if (qn > bestN.q) bestN = { col, q: qn };
+  });
+  if (bestC.q >= 0.5) mappa.cuaa = { col: bestC.col, confidenza: 0.5, perche: "dedotta dal contenuto (codici fiscali)" };
+  if (bestN.q >= 0.5 && bestN.col !== bestC.col) mappa.denominazione = { col: bestN.col, confidenza: 0.45, perche: "dedotta dal contenuto (testo)" };
+  return { ...a, mappa };
 }
 
 const chiaveRiga = (r: { cuaa: string | null; denominazione: string | null }) => chiaveCuaa(r.cuaa) || "n:" + chiaveNome(r.denominazione);
@@ -63,6 +87,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const [files, setFiles] = useState<FileCaricato[]>([]);
   const [statoDef, setStatoDef] = useState<"C" | "S" | "R">("R");
   const [modo, setModo] = useState<"sostituisci" | "integra">("sostituisci");
+  const [usaStati, setUsaStati] = useState(true);
   const [lavoro, setLavoro] = useState<string | null>(null);
   const [fatto, setFatto] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -73,7 +98,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const precedente = miei.find((f) => f.tipo === "modello") ?? null;
   const vociPratica = useMemo(() => voci.filter((v) => v.pratica_id === pratica.id), [voci, pratica.id]);
 
-  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("R"); setModo("sostituisci"); setLavoro(null); setFatto(false); } }, [open]);
+  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("R"); setModo("sostituisci"); setUsaStati(true); setLavoro(null); setFatto(false); } }, [open]);
 
   const aggiungi = async (lista: FileList | File[]) => {
     const nuovi = [...lista].slice(0, isModello ? 1 : 20);
@@ -83,7 +108,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
       setFiles((x) => [...x, { id, file, analisi: [], scelta: 0 }]);
       try {
         const fogli = await leggiExcel(file);
-        const analisi = analizzaFile(fogli, CAMPI_DOMANDA, /domand|elenco|fatt|rilasc|stamp/i).filter((a) => a.righe.length > 0);
+        const analisi = analizzaFile(fogli, CAMPI_DOMANDA, /domand|elenco|fatt|rilasc|stamp/i).filter((a) => a.righe.length > 0).map(completaMappa);
         if (!analisi.length) throw new Error("nessun dato trovato");
         setFiles((x) => x.map((f) => (f.id === id ? { ...f, analisi } : f)));
       } catch (e) {
@@ -113,10 +138,13 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     const presenti = new Set(vociPratica.map(chiaveRiga));
     const nuoviDaIntegrare = unici.filter((r) => !presenti.has(chiaveRiga(r)));
     const senzaCuaa = unici.filter((r) => !r.cuaa).length;
+    const conStato = unici.filter((r) => r.stato && r.stato !== "N");
+    const indizi = Object.entries(parsed[0].colonne).filter(([k]) => k === "stato" || k.startsWith("indizio_")).map(([, h]) => h);
+    if (!usaStati) unici.forEach((r, i) => { unici[i] = { ...r, stato: null }; });
     const finte = unici.map((r, i) => ({ id: "x" + i, pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: null, cuaa: r.cuaa, denominazione: r.denominazione, extra: {}, stato_manuale: null, numero: null, data_presentazione: null, esito: null, motivi: [], riesame: null, note: r.note, ordine: i, created_at: "", updated_at: "", updated_by: null }));
-    const ris = miei.some((f) => f.tipo === "fatte") ? riscontro(finte, miei) : null;
-    return { unici, doppioni, senzaCuaa, nuoviDaIntegrare, ris };
-  }, [isModello, parsed, vociPratica, miei, pratica.id, ufficio.id]);
+    const ris = miei.some((f) => f.tipo === "fatte") || (usaStati && conStato.length) ? riscontro(finte, [...miei.filter((f) => f.tipo === "fatte"), { id: "nuovo-modello", pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "modello", nome: parsed[0].f.file.name, righe: unici, colonne: parsed[0].colonne, stato_predefinito: "R", n_righe: unici.length, storage_path: null, created_at: new Date().toISOString(), created_by: null }]) : null;
+    return { unici, doppioni, senzaCuaa, nuoviDaIntegrare, ris, conStato: conStato.length, indizi };
+  }, [isModello, parsed, vociPratica, miei, pratica.id, ufficio.id, usaStati]);
 
   // ---------- anteprima: domande fatte ----------
   const anteprimaFatte = useMemo(() => {
@@ -182,6 +210,12 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     content: (
       <div className="space-y-6">
         {validi.map((f) => <MappaFile key={f.id} f={f} onChange={(k, c) => setMappa(f.id, k, c)} />)}
+        {validi.filter((f) => { const a = f.analisi[f.scelta]; return !(a.mappa.cuaa || a.mappa.denominazione || (a.mappa.cognome && a.mappa.nome)); }).map((f) => (
+          <div key={"w" + f.id} className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-[13.5px] text-amber-900 flex gap-2">
+            <AlertTriangle size={17} className="shrink-0 mt-0.5" />
+            <span>In «{f.file.name}» non ho trovato la colonna del <b>CUAA</b> né quella del <b>nominativo</b>: sceglila qui sopra dal menu, poi puoi andare avanti.</span>
+          </div>
+        ))}
         {!isModello && (
           <div>
             <span className="label">Cosa contengono questi file?</span>
@@ -214,9 +248,19 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
             <ChoiceCard selected={modo === "integra"} onClick={() => setModo("integra")} title="Aggiungi solo i nuovi" desc={`Tengo l'elenco attuale e aggiungo ${m.nuoviDaIntegrare.length} nominativi che mancano.`} />
           </div>
         )}
+        {m.conStato > 0 && (
+          <div onClick={() => setUsaStati((x) => !x)} className={clsx("flex items-center gap-4 rounded-2xl border-2 px-4 py-3.5 cursor-pointer transition-colors", usaStati ? "border-brand-300 bg-brand-50/50" : "border-ink-100")}>
+            <Toggle checked={usaStati} onChange={setUsaStati} />
+            <div className="flex-1">
+              <div className="font-bold text-[14.5px]">{m.conStato} righe hanno già uno stato nel file</div>
+              <div className="text-[13px] text-ink-500">Ricavato da: {m.indizi.map((h) => `«${h}»`).join(", ")}. {usaStati ? "Lo uso: le altre righe restano «non fatte»." : "Lo ignoro: tutte le righe partono «non fatte»."}</div>
+            </div>
+          </div>
+        )}
+        {!m.conStato && <p className="text-[13px] text-ink-600 flex gap-2"><Check size={16} className="shrink-0 mt-0.5 text-brand-700" />Tutte le righe partono come <b>non fatte</b>: lo stato arriva dai file delle domande fatte che caricherai.</p>}
         {m.ris && (
           <div className="rounded-2xl ring-1 ring-ink-100 p-4">
-            <div className="text-[13px] font-semibold text-ink-600 mb-3">Con i file delle domande fatte già caricati risulterebbero:</div>
+            <div className="text-[13px] font-semibold text-ink-600 mb-3">Dopo il caricamento risulterebbero:</div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={m.ris!.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
             </div>
@@ -294,6 +338,12 @@ function SchedaFile({ f, onRemove, onFoglio }: { f: FileCaricato; onRemove: () =
           {f.analisi.length > 1 && (
             <Select size="sm" className="ml-auto w-48" value={String(f.scelta)} onChange={(v) => onFoglio(Number(v))} options={f.analisi.map((x, i) => ({ value: String(i), label: `Foglio «${x.foglio}»`, hint: `${x.righe.length} righe` }))} />
           )}
+        </div>
+      )}
+      {a && indiziStato(a).length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-500">
+          Stato ricavato anche da:
+          {indiziStato(a).map((i) => <span key={i.col} className="chip !h-6 !text-[11px]" style={{ background: STATI[i.stato].color + "14", color: STATI[i.stato].color }}>«{i.intestazione}» → {NOME_STATO[i.stato].toLowerCase()}</span>)}
         </div>
       )}
       {a && !trovati.length && <div className="mt-2 text-[13px] text-amber-700">Non ho trovato né CUAA né nominativi: controlla le colonne al passo successivo.</div>}

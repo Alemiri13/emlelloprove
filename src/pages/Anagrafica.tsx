@@ -15,7 +15,9 @@ import { Button } from "../components/ui/Button";
 import { Checkbox, SearchInput, Toggle } from "../components/ui/Inputs";
 import { Modal } from "../components/ui/Modal";
 import { useFeedback } from "../components/ui/Feedback";
-import { useAbbina, useAggiornaAziende, useEliminaAziende, useTrasferisciAziende } from "../lib/queries";
+import { useAggiornaAziende, useAggiungiVoci, useEliminaAziende, useTrasferisciAziende } from "../lib/queries";
+import { chiaveCuaa } from "../lib/riscontro";
+import type { StatoDomanda } from "../lib/types";
 import { Segmented } from "../components/ui/Segmented";
 import { Select } from "../components/ui/Select";
 import { Avatar, Badge, Empty } from "../components/ui/Misc";
@@ -27,7 +29,7 @@ type Ordine = "nome" | "sau" | "recenti" | "eta";
 type Situazione = "tutte" | "con_domande" | "senza_domande" | "senza_sau" | "senza_colture" | "senza_contatti";
 
 export function AnagraficaPage() {
-  const { aziende, colturaById, domande, pratiche, loading, ufficio } = useUfficio();
+  const { aziende, colturaById, riscontri, pratiche, loading, ufficio } = useUfficio();
   const { apriAzienda, nuovaAzienda } = useModals();
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("tutte");
@@ -47,11 +49,17 @@ export function AnagraficaPage() {
   const trasferisci = useTrasferisciAziende();
   const { toast, confirm } = useFeedback();
 
+  // pratiche in cui l'azienda compare nell'elenco da fare (per CUAA): solo lettura
   const domByAz = useMemo(() => {
-    const m = new Map<string, typeof domande>();
-    for (const d of domande) (m.get(d.azienda_id) ?? m.set(d.azienda_id, []).get(d.azienda_id)!).push(d);
+    const perCuaa = new Map<string, { stato: StatoDomanda; pratica_id: string }[]>();
+    for (const [pid, r] of riscontri) for (const v of r.voci) {
+      const c = chiaveCuaa(v.voce.cuaa);
+      if (c) (perCuaa.get(c) ?? perCuaa.set(c, []).get(c)!).push({ stato: v.stato, pratica_id: pid });
+    }
+    const m = new Map<string, { stato: StatoDomanda; pratica_id: string }[]>();
+    for (const a of aziende) { const l = perCuaa.get(chiaveCuaa(a.cuaa)); if (l) m.set(a.id, l); }
     return m;
-  }, [domande]);
+  }, [riscontri, aziende]);
 
   const counts = useMemo(() => ({
     tutte: aziende.length,
@@ -320,8 +328,8 @@ function AziendaRow({ a, i, onClick, domande, colturaById, selected, onSelect }:
         <div className="text-[11px] text-ink-400 font-medium">SAU</div>
       </div>
       <div className="hidden lg:flex w-20 justify-end gap-1">
-        {domande.slice(0, 4).map((d) => (
-          <span key={d.pratica_id} className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[d.stato as "R"].color }} title={STATI[d.stato as "R"].label} />
+        {domande.slice(0, 4).map((d, i) => (
+          <span key={d.pratica_id + i} className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[d.stato as "R"].color }} title={STATI[d.stato as "R"].label} />
         ))}
       </div>
       <ChevronRight size={20} className={clsx("text-ink-300 transition-all duration-200 group-hover:text-brand-700 group-hover:translate-x-0.5")} />
@@ -379,15 +387,18 @@ function EliminaAziende({ open, ids, onClose, onDone }: { open: boolean; ids: st
 }
 
 function AggiungiAPratica({ open, ids, onClose, onDone }: { open: boolean; ids: string[]; onClose: () => void; onDone: () => void }) {
-  const { pratiche } = useUfficio();
-  const abb = useAbbina();
+  const { pratiche, aziende, voci, ufficio } = useUfficio();
+  const abb = useAggiungiVoci();
   const { toast } = useFeedback();
   const [pid, setPid] = useState<string | null>(null);
   useEffect(() => { if (open) setPid(null); }, [open]);
   const vai = async () => {
     if (!pid) return;
-    await abb.mutateAsync({ pratica_id: pid, aziende: ids, tipo: "incluso" });
-    toast("success", `${ids.length} aziende aggiunte`, pratiche.find((p) => p.id === pid)?.nome);
+    const gia = new Set(voci.filter((v) => v.pratica_id === pid).map((v) => chiaveCuaa(v.cuaa)));
+    const scelte = aziende.filter((a) => ids.includes(a.id) && !gia.has(chiaveCuaa(a.cuaa)));
+    const base = voci.filter((v) => v.pratica_id === pid).length;
+    await abb.mutateAsync(scelte.map((a, i) => ({ pratica_id: pid, ufficio_id: ufficio.id, cuaa: a.cuaa, denominazione: a.denominazione, ordine: base + i })));
+    toast("success", `${scelte.length} aggiunte all'elenco da fare${ids.length > scelte.length ? ` (${ids.length - scelte.length} c'erano già)` : ""}`, pratiche.find((p) => p.id === pid)?.nome);
     onDone();
   };
   return (

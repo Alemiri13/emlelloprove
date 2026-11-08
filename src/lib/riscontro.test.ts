@@ -21,4 +21,10 @@ ok("fuori elenco", r.fuori.length === 1 && r.fuori[0].riga.denominazione === "GA
 ok("conteggi", r.conteggi.R === 2 && r.conteggi.S === 1 && r.conteggi.C === 1 && r.conteggi.N === 1, JSON.stringify(r.conteggi));
 const r2 = riscontro(voci, [fB]);
 ok("eliminando un file si ricalcola", r2.voci.find((v) => v.voce.id === "1")!.stato === "S" && r2.voci.find((v) => v.voce.id === "4")!.stato === "N");
+
+// elenco da fare: righe senza stato restano non fatte, righe con stato indicato nel file contano
+const mod: PraticaFile = { ...file("modello", [riga("RSSMRA80A41E372Q", "ROSSI MARIA"), riga("BNCLGU75C12I520K", "BIANCHI LUIGI", "S")]), tipo: "modello" };
+const r3 = riscontro([voce("1", "RSSMRA80A41E372Q", "ROSSI MARIA"), voce("2", "BNCLGU75C12I520K", "BIANCHI LUIGI")], [mod]);
+ok("elenco senza stati: non fatta", r3.voci[0].stato === "N", r3.voci[0].stato);
+ok("elenco con «data stampa»: stampata", r3.voci[1].stato === "S" && r3.fuori.length === 0, r3.voci[1].stato);
 console.log(ko ? `${ko} prove fallite` : "Tutte le prove superate");

@@ -1,5 +1,5 @@
 // Prove del riconoscimento Excel con dati fittizi. Esecuzione: npm run test:analisi
-import { analizzaFile, CAMPI_AZIENDA, CAMPI_DOMANDA, cuaaDa, stato, valore, type Foglio } from "./excel";
+import { analizzaFile, CAMPI_AZIENDA, CAMPI_DOMANDA, cuaaDa, indiziStato, stato, statoRiga, valore, type Foglio } from "./excel";
 
 const CF = ["RSSMRA80A41E372Q", "BNCLGU75C12I520K", "VRDGPP62T05A485M", "NRIFNC90E50E372S", "GLLPLA58M21B865X", "MRNLCU77H10D209Z"];
 let falliti = 0;
@@ -63,5 +63,30 @@ verifica("colonna SI/NO come stato", a6.mappa.stato?.col === 2 && stato("SI") ==
 // 7. valori di stato
 const casi: [string, string][] = [["Rilasciata", "R"], ["da rilasciare", "S"], ["Stampata", "S"], ["In compilazione", "C"], ["bozza", "C"], ["Non presentata", "N"], ["presentata", "R"], ["Protocollata", "R"]];
 verifica("valori di stato", casi.every(([v, e]) => stato(v) === e), casi.map(([v]) => `${v}=${stato(v)}`).join(" "));
+
+// 8. stato ricavato dalle colonne indizio: «Data stampa», «Data rilascio», «Data compilazione»
+const f8: Foglio = { nome: "x", righe: [["CUAA", "Ragione sociale", "Data compilazione", "Data stampa", "Data rilascio", "Data di nascita"],
+  [CF[0], "ROSSI MARIA", new Date(2026, 3, 1), new Date(2026, 3, 2), new Date(2026, 3, 3), new Date(1980, 0, 1)],
+  [CF[1], "BIANCHI LUIGI", new Date(2026, 3, 1), new Date(2026, 3, 2), null, new Date(1975, 0, 1)],
+  [CF[2], "VERDI GIUSEPPE", new Date(2026, 3, 1), "-", "", new Date(1962, 0, 1)],
+  [CF[3], "NERI FRANCESCA", null, null, null, new Date(1990, 0, 1)],
+] };
+const a8 = analizzaFile([f8], CAMPI_DOMANDA)[0];
+const ind8 = indiziStato(a8);
+const st8 = a8.righe.map((r) => statoRiga(a8, r, ind8));
+verifica("colonne indizio riconosciute", ind8.map((i) => i.stato).sort().join("") === "CRS", ind8.map((i) => `${i.intestazione}=${i.stato}`).join(" "));
+verifica("stato dalle date (rilascio > stampa > compilazione > niente)", st8.join(",") === "R,S,C,", st8.join(","));
+
+// 9. un elenco «da fare» senza indizi non ha stati (resta tutto da fare)
+const f9: Foglio = { nome: "x", righe: [["N.", "Cod. Fiscale", "Nominativo", "Comune", "Data"], ...CF.map((c, i) => [i + 1, c, "AZIENDA PROVA " + i, "Scerni", new Date(2026, 0, 1)])] };
+const a9 = analizzaFile([f9], CAMPI_DOMANDA)[0];
+const ind9 = indiziStato(a9);
+verifica("elenco senza indizi: nessuno stato", a9.righe.every((r) => statoRiga(a9, r, ind9) == null), ind9.map((i) => i.intestazione).join(","));
+
+// 10. parola di stato scritta in una colonna qualsiasi
+const f10: Foglio = { nome: "x", righe: [["Codice fiscale", "Denominazione", "Annotazioni ufficio"], [CF[0], "ROSSI MARIA", "stampata"], [CF[1], "BIANCHI LUIGI", "telefonato"]] };
+const a10 = analizzaFile([f10], CAMPI_DOMANDA)[0];
+const st10 = a10.righe.map((r) => statoRiga(a10, r, indiziStato(a10)));
+verifica("parola di stato in una cella", st10[0] === "S" && st10[1] == null, st10.join(","));
 
 console.log(falliti ? `${falliti} prove fallite` : "Tutte le prove superate");

@@ -41,23 +41,32 @@ export interface Azione {
   disabled?: boolean;
 }
 
-/** Barra flottante delle azioni sulla selezione. */
+/**
+ * Barra delle azioni sulla selezione: compare in alto, sotto l'intestazione, centrata nell'area dei contenuti.
+ * I pulsanti vanno a capo se lo spazio non basta (niente scorrimento fuori schermo).
+ */
 export function BarraAzioni({ n, azioni, onClear, nome = "selezionati" }: { n: number; azioni: Azione[]; onClear: () => void; nome?: string }) {
   return (
     <AnimatePresence>
       {n > 0 && (
-        <motion.div
-          initial={{ y: 100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 100, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 420, damping: 34 }}
-          className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 lg:ml-[132px] z-40 bg-ink-900 text-white rounded-[22px] shadow-pop pl-5 pr-2 py-2 flex items-center gap-1 max-w-[calc(100vw-24px)] overflow-x-auto"
-        >
-          <span className="font-bold text-[14px] whitespace-nowrap pr-2 tabular-nums">{n} {nome}</span>
-          <span className="h-6 w-px bg-white/15 mx-1" />
-          {azioni.map((a) => <BottoneAzione key={a.label} a={a} />)}
-          <button onClick={onClear} className="h-11 w-11 rounded-xl grid place-items-center hover:bg-white/10 transition shrink-0" aria-label="Deseleziona"><X size={18} /></button>
-        </motion.div>
+        <div className="fixed inset-x-0 top-[80px] lg:left-[264px] z-40 flex justify-center px-3 sm:px-6 pointer-events-none">
+          <motion.div
+            initial={{ y: -16, opacity: 0, scale: 0.98 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: -16, opacity: 0, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 460, damping: 36 }}
+            role="toolbar"
+            aria-label="Azioni sulla selezione"
+            className="pointer-events-auto max-w-full bg-white/95 backdrop-blur-xl rounded-[20px] shadow-pop ring-1 ring-ink-100 p-1.5 flex flex-wrap items-center gap-1"
+          >
+            <span className="h-10 pl-2 pr-3 flex items-center gap-2 font-bold text-[13.5px] whitespace-nowrap tabular-nums text-brand-900">
+              <span className="h-7 min-w-[28px] px-2 rounded-full bg-brand-700 text-white grid place-items-center text-[12.5px]">{n}</span>{nome}
+            </span>
+            <span className="hidden sm:block h-6 w-px bg-ink-100 mx-0.5" />
+            {azioni.map((a) => <BottoneAzione key={a.label} a={a} />)}
+            <button onClick={onClear} className="h-10 w-10 rounded-xl grid place-items-center text-ink-400 hover:bg-ink-100 hover:text-ink-800 transition shrink-0" aria-label="Deseleziona" title="Deseleziona"><X size={18} /></button>
+          </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );
@@ -73,14 +82,15 @@ function BottoneAzione({ a }: { a: Azione }) {
         disabled={a.disabled}
         onClick={() => (a.menu ? setOpen((o) => !o) : a.onClick?.())}
         className={clsx(
-          "h-11 px-3.5 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 transition whitespace-nowrap disabled:opacity-40",
-          a.tone === "danger" ? "text-red-300 hover:bg-red-500/20 hover:text-red-200" : a.tone === "muted" ? "text-white/70 hover:bg-white/10" : "hover:bg-white/10",
+          "h-10 px-3 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 transition whitespace-nowrap disabled:opacity-40",
+          a.tone === "danger" ? "text-red-600 hover:bg-red-50" : a.tone === "muted" ? "text-ink-500 hover:bg-ink-100" : "text-ink-800 hover:bg-ink-100",
+          open && "bg-ink-100",
         )}
       >
         {a.icon}{a.label}{a.menu && <ChevronUp size={14} className={clsx("transition-transform", !open && "rotate-180")} />}
       </button>
       {a.menu && (
-        <Popover open={open} onClose={() => setOpen(false)} anchor={ref} align="start" minWidth={220}>
+        <Popover open={open} onClose={() => setOpen(false)} anchor={ref} align="center" minWidth={220}>
           <div className="p-1.5">
             {a.menu.map((m) => (
               <button key={m.label} onClick={() => { setOpen(false); m.onClick(); }} className="w-full flex items-center gap-3 px-3 h-10 rounded-xl text-[13.5px] font-semibold text-ink-700 hover:bg-ink-50 text-left">

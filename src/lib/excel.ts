@@ -463,3 +463,63 @@ export function confidenzaMedia<K extends string>(a: Analisi<K>, chiavi: K[]) {
   const v = chiavi.map((k) => a.mappa[k]?.confidenza).filter((x): x is number => x != null);
   return v.length ? v.reduce((s, x) => s + x, 0) / v.length : 0;
 }
+
+// =====================================================================
+// Stato ricavato da colonne «indizio» (data stampa, data rilascio, protocollo…)
+// =====================================================================
+export interface IndizioStato { col: number; stato: StatoDomanda; intestazione: string; perche: string }
+
+const INDIZI: { stato: StatoDomanda; re: RegExp; perche: string }[] = [
+  { stato: "R", re: /\b(data )?(rilascio|rilasciat\w*|invio|inviat\w*|trasmission\w*|trasmess\w*|protocoll\w*|ricevuta|presentazione|presentat\w*)\b|\bn(umero)? ?prot\b/, perche: "rilascio / invio / protocollo" },
+  { stato: "S", re: /\b(data )?(stampa|stampat\w*|firma|firmat\w*|sottoscri\w*)\b/, perche: "stampa / firma" },
+  { stato: "C", re: /\b(data )?(compilazion\w*|compilat\w*|bozza|creazion\w*|inserimento|inserit\w*|apertura|inizio lavorazione|lavorazione)\b/, perche: "compilazione / bozza" },
+];
+
+/** Colonne la cui intestazione indica uno stato (per esempio «Data stampa» → stampata). */
+export function indiziStato<K extends string>(a: Pick<Analisi<K>, "intestazioni" | "mappa">): IndizioStato[] {
+  const escluse = new Set(["cuaa", "denominazione", "cognome", "nome", "stato", "esito", "motivi", "note", "data_esito", "litri_assegnati"]
+    .map((k) => (a.mappa as Record<string, Abbinamento | undefined>)[k]?.col).filter((x): x is number => x != null));
+  const out: IndizioStato[] = [];
+  a.intestazioni.forEach((h, col) => {
+    if (escluse.has(col) || /^colonna [a-z]+$/i.test(h)) return;
+    const n = normalizza(h);
+    if (/nascita|scadenza|esito|pagament|decreto|istruttori|non /.test(n)) return;
+    for (const i of INDIZI) if (i.re.test(n)) { out.push({ col, stato: i.stato, intestazione: h, perche: i.perche }); break; }
+  });
+  return out;
+}
+
+/** Una cella «indizio» conta se è piena e non dice di no (data, numero, «SI», «X»…). */
+function cellaPositiva(v: unknown) {
+  if (v == null) return false;
+  if (v instanceof Date) return true;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "boolean") return v;
+  const s = normalizza(String(v)).trim();
+  if (!s || /^(-+|\/|0|no|n|non|falso|false|nd|n\/d|\.)$/.test(s)) return false;
+  if (stato(s) === "N") return false;
+  return true;
+}
+
+const STATO_FORTE = /\b(rilasciat[ae]|stampat[ae]|in compilazione|bozza|compilat[ae]|inviat[ae]|trasmess[ae]|protocollat[ae]|presentat[ae]|non (fatt|presentat|rilasciat)\w*)\b/;
+const ORD: Record<StatoDomanda, number> = { N: 0, C: 1, S: 2, R: 3 };
+
+/**
+ * Stato di una riga: colonna «stato» se c'è e si capisce; poi le colonne indizio
+ * (vince la più avanzata con un valore); infine una parola di stato scritta in una cella breve.
+ */
+export function statoRiga<K extends string>(a: Pick<Analisi<K>, "intestazioni" | "mappa">, riga: unknown[], indizi: IndizioStato[]): StatoDomanda | null {
+  const m = (a.mappa as Record<string, Abbinamento | undefined>).stato;
+  if (m) { const s = stato(riga[m.col]); if (s) return s; }
+  let best: StatoDomanda | null = null;
+  for (const i of indizi) if (cellaPositiva(riga[i.col]) && (!best || ORD[i.stato] > ORD[best])) best = i.stato;
+  if (best) return best;
+  const nominativi = new Set(["cuaa", "denominazione", "cognome", "nome"].map((k) => (a.mappa as Record<string, Abbinamento | undefined>)[k]?.col));
+  for (let c = 0; c < riga.length; c++) {
+    const v = riga[c];
+    if (nominativi.has(c) || typeof v !== "string" || v.length > 40) continue;
+    const s = normalizza(v);
+    if (STATO_FORTE.test(s)) { const st = stato(s); if (st && (!best || ORD[st] > ORD[best])) best = st; }
+  }
+  return best;
+}

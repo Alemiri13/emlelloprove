@@ -181,8 +181,8 @@ export function useSalvaAzienda() {
 
 /** Elimina una o più aziende (con domande, colture e documenti, compresi i file archiviati). */
 export async function eliminaAziende(ids: string[]) {
-  for (let i = 0; i < ids.length; i += 200) {
-    const blocco = ids.slice(i, i + 200);
+  for (let i = 0; i < ids.length; i += 80) {
+    const blocco = ids.slice(i, i + 80);
     const docs = check(await supabase.from("documenti").select("storage_path").in("azienda_id", blocco)) as { storage_path: string | null }[];
     const paths = docs.map((d) => d.storage_path).filter((x): x is string => !!x);
     if (paths.length) await supabase.storage.from("documenti").remove(paths);
@@ -204,8 +204,8 @@ export function useEliminaAziende() {
     mutationFn: async ({ ids, cuaaAltriUffici }: { ids: string[]; cuaaAltriUffici?: string[] }) => {
       let tutti = [...ids];
       if (cuaaAltriUffici?.length) {
-        for (let i = 0; i < cuaaAltriUffici.length; i += 200) {
-          const r = check(await supabase.from("aziende").select("id").in("cuaa", cuaaAltriUffici.slice(i, i + 200))) as { id: string }[];
+        for (let i = 0; i < cuaaAltriUffici.length; i += 100) {
+          const r = check(await supabase.from("aziende").select("id").in("cuaa", cuaaAltriUffici.slice(i, i + 100))) as { id: string }[];
           tutti.push(...r.map((x) => x.id));
         }
         tutti = [...new Set(tutti)];
@@ -366,7 +366,8 @@ export async function scaricaDocumento(d: Documento): Promise<Blob> {
 // =====================================================================
 // Operazioni in blocco
 // =====================================================================
-async function aBlocchi<T>(ids: T[], fn: (parte: T[]) => Promise<void>, dim = 200) {
+async function aBlocchi<T>(ids: T[], fn: (parte: T[]) => Promise<void>, dim = 80) {
+  // blocchi piccoli: i filtri .in() finiscono nell'indirizzo della richiesta, che oltre qualche KB dà «400 Bad Request»
   for (let i = 0; i < ids.length; i += dim) await fn(ids.slice(i, i + dim));
 }
 
@@ -386,7 +387,8 @@ export function useTrasferisciAziende() {
   const inv = useInvalidate();
   return useMutation({
     mutationFn: async ({ ids, ufficio, sposta }: { ids: string[]; ufficio: string; sposta: boolean }) => {
-      const righe = await tutte<Azienda>((a, b) => supabase.from("aziende").select("*, azienda_colture(*)").in("id", ids.slice(0, 1000)).order("id").range(a, b));
+      const righe: Azienda[] = [];
+      await aBlocchi(ids, async (p) => { righe.push(...(check(await supabase.from("aziende").select("*, azienda_colture(*)").in("id", p)) as Azienda[])); });
       const gia = new Set((await tutte<{ cuaa: string }>((a, b) => supabase.from("aziende").select("cuaa").eq("ufficio_id", ufficio).order("id").range(a, b))).map((x) => x.cuaa));
       const libere = righe.filter((r) => !gia.has(r.cuaa));
       if (sposta) {
@@ -484,8 +486,8 @@ export function useEliminaDocumenti() {
   return useMutation({
     mutationFn: async (docs: Documento[]) => {
       const paths = docs.map((d) => d.storage_path).filter((x): x is string => !!x);
-      if (paths.length) await supabase.storage.from("documenti").remove(paths);
-      check(await supabase.from("documenti").delete().in("id", docs.map((d) => d.id)));
+      await aBlocchi(paths, async (p) => { await supabase.storage.from("documenti").remove(p); }, 200);
+      await aBlocchi(docs.map((d) => d.id), async (p) => { check(await supabase.from("documenti").delete().in("id", p)); });
     },
     onSuccess: () => inv("documenti", "storico"),
   });
