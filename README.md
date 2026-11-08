@@ -37,8 +37,8 @@ Il motore è in `src/lib/analisi/`; le prove con dati fittizi si lanciano con `n
 ## Flusso delle domande
 
 1. **Nuova domanda** → si sceglie la pratica: tra quelle in uso, dal **catalogo dei tipi di domanda** (annuali e una tantum: DU, UMA, vendemmia, giacenza, SRA, SRB01, titoli, SRF01, SRE01, SRD01/02, RRV, ISMEA, ISI INAIL…) oppure creandone una nuova.
-2. Nella pagina della pratica, **passo 1**: si carica l'Excel delle **domande da fare** (il modello). Si fa una volta: le aziende dell'elenco entrano nella pratica come «Non fatte»; i CUAA non in anagrafica vengono creati.
-3. **Passo 2**: si carica l'Excel (anche più file) delle **domande fatte**. Il confronto con il modello mette il pallino a ogni azienda: 🟢 fatta, 🔵 stampata, 🟠 in compilazione, 🔴 da fare. Se il file non ha una colonna di stato, chi è nel file risulta fatto. Le aziende «fuori elenco» vengono segnalate e, se si vuole, aggiunte. Il caricamento si può ripetere a ogni aggiornamento.
+2. Nella pagina della pratica, **passo 1**: si carica l'Excel delle **domande da fare** (il modello). **L'anagrafica non viene toccata**: l'elenco vive solo nella pratica (tabella `pratica_voci`). Si può modificare riga per riga (stato a mano, numero, data, esito, note, aggiungere o togliere nominativi), sostituire o integrare con un nuovo file, scaricare l'originale ed eliminare.
+3. **Passo 2**: si caricano uno o più Excel delle domande **fatte, stampate o in compilazione** (tabella `pratica_file`). Il riscontro (`src/lib/riscontro.ts`, per CUAA o per nominativo univoco) mette il pallino a ogni riga dell'elenco: 🟢 fatta, 🔵 stampata, 🟠 in compilazione, 🔴 non fatta; vale lo stato più avanzato, e uno stato messo a mano ha la precedenza. Se il file non ha una colonna di stato si indica cosa contiene. I nominativi «fuori elenco» vengono segnalati e si possono aggiungere all'elenco. Ogni file si può scaricare o eliminare (anche i vecchi, in blocco): il riscontro si ricalcola subito.
 4. Chi resta da fare finisce in **Da fare**, filtrabile per pratica.
 
 Importi, pagamenti e quota servizio non fanno parte del gestionale.
@@ -49,8 +49,8 @@ Ogni elenco ha ricerca, filtri, «seleziona tutti» ed esportazione in Excel; la
 
 - **Anagrafica**: filtri per tipo, requisiti, coltura, comune, situazione (con/senza domande, senza SAU, senza colture, senza contatti). Azioni: esporta, imposta biologico/IAP/UMA, aggiungi a una pratica, copia o sposta in un altro ufficio, elimina (anche da tutti gli uffici).
 - **Pratiche e bandi**: filtri per tipo, attive, senza elenco, in scadenza, scadute. Azioni: attiva, disattiva, esporta, elimina.
-- **Pagina della pratica**: filtro per stato; azioni: cambia stato, esporta, togli dall'elenco o escludi; storico dei caricamenti eliminabile (eliminando l'elenco «da fare» la pratica torna ai requisiti automatici).
-- **Domande**: cambia stato, esporta, togli dall'elenco o escludi.
+- **Pagina della pratica**: filtro per stato o «stato a mano»; azioni: imposta stato (o torna automatico dai file), esporta, togli dall'elenco; file delle domande fatte eliminabili in blocco; fuori elenco aggiungibili in blocco.
+- **Domande**: stesso elenco con il riscontro, per pratica.
 - **Da fare**: ricerca, cambia stato anche su pratiche diverse, esporta.
 - **Colture** e **documenti** dell'azienda: elimina ed esporta in blocco.
 

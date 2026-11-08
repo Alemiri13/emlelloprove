@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, ChevronRight, Download, ListChecks, X } from
 import { BarraAzioni, SelezionaTutti, useSelezione } from "../components/ui/Bulk";
 import { Checkbox, SearchInput } from "../components/ui/Inputs";
 import { useFeedback } from "../components/ui/Feedback";
-import { useStatoMisto } from "../lib/queries";
+import { useAggiornaVoci } from "../lib/queries";
 import { esportaExcel } from "../lib/esporta";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -16,18 +16,18 @@ import { Button } from "../components/ui/Button";
 import { PageHeader } from "./Anagrafica";
 
 export function DaFarePage() {
-  const { aziende, pratiche, abbinamenti, domande, ufficio } = useUfficio();
-  const { apriDomanda } = useModals();
+  const { pratiche, riscontri, ufficio } = useUfficio();
+  const { apriVoce } = useModals();
   const [params, setParams] = useSearchParams();
   const filtroPratica = params.get("pratica");
   const praticaFiltro = pratiche.find((p) => p.id === filtroPratica);
-  const all = useMemo(() => calcolaAttivita(aziende, praticaFiltro ? [praticaFiltro] : pratiche, abbinamenti, domande), [aziende, pratiche, praticaFiltro, abbinamenti, domande]);
+  const all = useMemo(() => calcolaAttivita(praticaFiltro ? [praticaFiltro] : pratiche, riscontri), [pratiche, praticaFiltro, riscontri]);
   const [tipo, setTipo] = useState<TipoAttivita | "urgenti" | null>(null);
   const [q, setQ] = useState("");
   const selezione = useSelezione(`${ufficio.id}|${filtroPratica}|${tipo}`);
-  const statoMisto = useStatoMisto();
+  const aggiorna = useAggiornaVoci();
   const { toast, confirm } = useFeedback();
-  const chiave = (x: { azienda: { id: string }; pratica: { id: string } }) => x.azienda.id + "|" + x.pratica.id;
+  const chiave = (x: { tipo: string; voce: { voce: { id: string } } }) => x.tipo + "|" + x.voce.voce.id;
   const [limit, setLimit] = useState(40);
   const counts = useMemo(() => {
     const c = {} as Record<TipoAttivita, number>;
@@ -40,21 +40,21 @@ export function DaFarePage() {
   const listaTipo = scelto === "urgenti" ? urgenti : all.filter((a) => a.tipo === scelto);
   const list = useMemo(() => {
     const n = normalizeSearch(q.trim());
-    return n ? listaTipo.filter((x) => normalizeSearch(`${x.azienda.denominazione} ${x.azienda.cuaa} ${x.pratica.nome}`).includes(n)) : listaTipo;
+    return n ? listaTipo.filter((x) => normalizeSearch(`${x.voce.voce.denominazione ?? ""} ${x.voce.voce.cuaa ?? ""} ${x.pratica.nome}`).includes(n)) : listaTipo;
   }, [listaTipo, q]);
   const cambia = async (st: "C" | "S" | "R" | "N") => {
-    const voci = list.filter((x) => selezione.sel.has(chiave(x))).map((x) => ({ azienda_id: x.azienda.id, pratica_id: x.pratica.id }));
-    if (st === "N" && !(await confirm({ title: `Riportare ${voci.length} domande a «da fare»?`, message: "Le domande vengono eliminate con i loro dati.", danger: true, confirmLabel: "Conferma" }))) return;
-    await statoMisto.mutateAsync({ voci, stato: st });
-    toast("success", `${voci.length} domande aggiornate`, STATI[st].label); selezione.svuota();
+    const ids = [...new Set(list.filter((x) => selezione.sel.has(chiave(x))).map((x) => x.voce.voce.id))];
+    if (st === "N" && !(await confirm({ title: `Segnare ${ids.length} domande come non fatte?`, message: "Lo stato viene impostato a mano e vale sopra a quello dei file.", confirmLabel: "Conferma" }))) return;
+    await aggiorna.mutateAsync({ ids, campi: { stato_manuale: st } });
+    toast("success", `${ids.length} domande aggiornate`, STATI[st].label); selezione.svuota();
   };
   const esporta = (soloSel: boolean) => {
     const l = soloSel ? list.filter((x) => selezione.sel.has(chiave(x))) : list;
-    esportaExcel(`da_fare_${ufficio.id}`, ["Attività", "Azienda", "CUAA", "Pratica", "Dettaglio", "Urgente"], l.map((x) => [TIPI_ATTIVITA[x.tipo].label, x.azienda.denominazione, x.azienda.cuaa, x.pratica.nome, x.dettaglio, x.urgente ? "SI" : ""]));
+    esportaExcel(`da_fare_${ufficio.id}`, ["Attività", "Nominativo", "CUAA", "Pratica", "Dettaglio", "Urgente"], l.map((x) => [TIPI_ATTIVITA[x.tipo].label, x.voce.voce.denominazione, x.voce.voce.cuaa, x.pratica.nome, x.dettaglio, x.urgente ? "SI" : ""]));
   };
   return (
     <div>
-      <PageHeader title="Da fare" subtitle={`Attività generate in automatico per l'ufficio di ${ufficio.nome}`} />
+      <PageHeader title="Da fare" subtitle={`Dal riscontro degli elenchi delle pratiche · ufficio di ${ufficio.nome}`} />
       {praticaFiltro && (
         <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-50 ring-1 ring-brand-100 pl-4 pr-1.5 h-10 text-[13.5px] font-semibold text-brand-900">
           Solo: {praticaFiltro.nome}
@@ -69,7 +69,7 @@ export function DaFarePage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-3">
-        <SearchInput value={q} onChange={setQ} placeholder="Cerca azienda, CUAA o pratica…" className="flex-1" />
+        <SearchInput value={q} onChange={setQ} placeholder="Cerca nominativo, CUAA o pratica…" className="flex-1" />
         {list.length > 0 && <Button variant="secondary" icon={<Download size={16} />} onClick={() => esporta(false)}>Esporta {list.length}</Button>}
       </div>
       <div className="card overflow-hidden">
@@ -86,17 +86,17 @@ export function DaFarePage() {
               <motion.div
                 role="button"
                 tabIndex={0}
-                key={x.tipo + x.azienda.id + x.pratica.id}
+                key={chiave(x)}
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0, transition: { delay: Math.min(i, 15) * 0.015 } }}
-                onClick={() => apriDomanda(x.azienda.id, x.pratica.id)}
+                onClick={() => apriVoce(x.voce.voce.id)}
                 className={clsx("group w-full flex items-center gap-4 px-5 py-4 text-left cursor-pointer transition-colors", selezione.sel.has(chiave(x)) ? "bg-brand-50/60" : "hover:bg-ink-50/80")}
               >
                 <span onClick={(e) => e.stopPropagation()}><Checkbox checked={selezione.sel.has(chiave(x))} onChange={(v) => selezione.toggle(chiave(x), v)} /></span>
                 <span className="w-1 self-stretch rounded-full -my-1" style={{ background: TIPI_ATTIVITA[x.tipo].color }} />
-                <Avatar name={x.azienda.denominazione} size={42} square={x.azienda.tipo === "PG"} />
+                <Avatar name={x.voce.voce.denominazione || x.voce.voce.cuaa || "?"} size={42} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-[15px] truncate">{titleCase(x.azienda.denominazione)}</div>
+                  <div className="font-bold text-[15px] truncate">{titleCase(x.voce.voce.denominazione || x.voce.voce.cuaa || "—")}</div>
                   <div className="text-[13px] text-ink-500 truncate">{x.pratica.nome}</div>
                 </div>
                 <span className="hidden sm:inline-flex chip bg-ink-50 text-ink-700">{TIPI_ATTIVITA[x.tipo].label}</span>

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { check, supabase } from "./supabase";
-import type { Abbinamento, Azienda, Caricamento, Coltura, Documento, Domanda, Pratica, Profilo, Storico, TipoDomanda, Ufficio } from "./types";
+import type { Abbinamento, Azienda, Caricamento, Coltura, Documento, Domanda, Pratica, PraticaFile, Profilo, RigaFile, Storico, TipoDomanda, Ufficio, Voce } from "./types";
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
@@ -488,5 +488,128 @@ export function useEliminaDocumenti() {
       check(await supabase.from("documenti").delete().in("id", docs.map((d) => d.id)));
     },
     onSuccess: () => inv("documenti", "storico"),
+  });
+}
+
+// =====================================================================
+// Elenchi delle pratiche (file caricati e voci), indipendenti dall'anagrafica
+// =====================================================================
+export function usePraticaFile(ufficio: string | undefined) {
+  return useQuery({
+    queryKey: ["pratica-file", ufficio],
+    enabled: !!ufficio,
+    queryFn: async () => check(await supabase.from("pratica_file").select("*").eq("ufficio_id", ufficio!).order("created_at")) as PraticaFile[],
+  });
+}
+
+export function useVoci(ufficio: string | undefined) {
+  return useQuery({
+    queryKey: ["voci", ufficio],
+    enabled: !!ufficio,
+    queryFn: async () => tutte<Voce>((a, b) => supabase.from("pratica_voci").select("*").eq("ufficio_id", ufficio!).order("ordine").order("id").range(a, b)),
+  });
+}
+
+async function caricaOriginale(file: File, praticaId: string) {
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "xlsx";
+  const path = `pratiche/${praticaId}/${crypto.randomUUID()}.${ext}`;
+  const up = await supabase.storage.from("documenti").upload(path, file, { contentType: file.type || undefined });
+  return up.error ? null : path;
+}
+
+export interface NuovoFile { file: File; righe: RigaFile[]; colonne: Record<string, string> }
+
+/** Carica l'elenco delle domande da fare (sostituisce quello esistente) e ne crea le voci. */
+export function useCaricaModello() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ pratica_id, ufficio_id, nuovo, precedente }: { pratica_id: string; ufficio_id: string; nuovo: NuovoFile; precedente?: PraticaFile | null }) => {
+      if (precedente) await eliminaFileElenco(precedente);
+      const storage_path = await caricaOriginale(nuovo.file, pratica_id);
+      const f = check(await supabase.from("pratica_file").insert({ pratica_id, ufficio_id, tipo: "modello", nome: nuovo.file.name, righe: nuovo.righe, colonne: nuovo.colonne, n_righe: nuovo.righe.length, storage_path }).select().single()) as PraticaFile;
+      const voci = nuovo.righe.map((r, i) => ({ pratica_id, ufficio_id, file_id: f.id, cuaa: r.cuaa, denominazione: r.denominazione, note: r.note, ordine: i }));
+      await aBlocchi(voci, async (p) => { check(await supabase.from("pratica_voci").insert(p)); }, 400);
+      return f;
+    },
+    onSuccess: () => inv("pratica-file", "voci"),
+  });
+}
+
+/** Carica un file delle domande fatte / stampate / in compilazione. */
+export function useCaricaFatte() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ pratica_id, ufficio_id, nuovi, stato_predefinito }: { pratica_id: string; ufficio_id: string; nuovi: NuovoFile[]; stato_predefinito: "C" | "S" | "R" }) => {
+      for (const n of nuovi) {
+        const storage_path = await caricaOriginale(n.file, pratica_id);
+        check(await supabase.from("pratica_file").insert({ pratica_id, ufficio_id, tipo: "fatte", nome: n.file.name, righe: n.righe, colonne: n.colonne, n_righe: n.righe.length, stato_predefinito, storage_path }));
+      }
+    },
+    onSuccess: () => inv("pratica-file"),
+  });
+}
+
+async function eliminaFileElenco(f: PraticaFile) {
+  if (f.tipo === "modello") check(await supabase.from("pratica_voci").delete().eq("pratica_id", f.pratica_id).eq("ufficio_id", f.ufficio_id));
+  if (f.storage_path) await supabase.storage.from("documenti").remove([f.storage_path]);
+  check(await supabase.from("pratica_file").delete().eq("id", f.id));
+}
+
+export function useEliminaFileElenco() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (files: PraticaFile[]) => { for (const f of files) await eliminaFileElenco(f); },
+    onSuccess: () => inv("pratica-file", "voci"),
+  });
+}
+
+export async function scaricaFileElenco(f: PraticaFile) {
+  if (!f.storage_path) throw new Error("Il file originale non è disponibile");
+  const { data, error } = await supabase.storage.from("documenti").download(f.storage_path);
+  if (error) throw new Error(error.message);
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url; a.download = f.nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+export type VoceInput = Partial<Omit<Voce, "created_at" | "updated_at" | "updated_by">>;
+
+export function useSalvaVoce() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (v: VoceInput & { pratica_id: string; ufficio_id: string }) => {
+      if (v.id) return check(await supabase.from("pratica_voci").update(v).eq("id", v.id).select().single()) as Voce;
+      return check(await supabase.from("pratica_voci").insert(v).select().single()) as Voce;
+    },
+    onSuccess: () => inv("voci"),
+  });
+}
+
+export function useAggiungiVoci() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (voci: (VoceInput & { pratica_id: string; ufficio_id: string })[]) => {
+      await aBlocchi(voci, async (p) => { check(await supabase.from("pratica_voci").insert(p)); }, 400);
+    },
+    onSuccess: () => inv("voci"),
+  });
+}
+
+export function useAggiornaVoci() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, campi }: { ids: string[]; campi: VoceInput }) => {
+      await aBlocchi(ids, async (p) => { check(await supabase.from("pratica_voci").update(campi).in("id", p)); });
+    },
+    onSuccess: () => inv("voci"),
+  });
+}
+
+export function useEliminaVoci() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (ids: string[]) => { await aBlocchi(ids, async (p) => { check(await supabase.from("pratica_voci").delete().in("id", p)); }); },
+    onSuccess: () => inv("voci"),
   });
 }

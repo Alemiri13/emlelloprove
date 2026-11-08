@@ -3,14 +3,15 @@ import { ClipboardList, FileStack, House, ListChecks, Plus, Sprout, Users } from
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
-import { useAbbinamenti, useAziende, useCaricamenti, useColture, useDomande, usePratiche, useUffici } from "../../lib/queries";
+import { useAbbinamenti, useAziende, useColture, useDomande, usePraticaFile, usePratiche, useUffici, useVoci } from "../../lib/queries";
+import { riscontro, type Riscontro } from "../../lib/riscontro";
 import { ModalsCtx, UfficioCtx, type ModalsApi, type UfficioData } from "../../lib/ufficio";
 import { calcolaAttivita } from "../../lib/domain";
 import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
 import { Spinner } from "../ui/Spinner";
 import { AziendaModal } from "../../features/AziendaModal";
-import { DomandaModal } from "../../features/DomandaModal";
+import { VoceModal } from "../../features/pratica/VoceModal";
 import { NuovaAziendaWizard } from "../../features/NuovaAziendaWizard";
 import { NuovaDomanda } from "../../features/NuovaDomanda";
 import { hasOpenModal } from "../ui/Modal";
@@ -34,16 +35,17 @@ export function AppShell() {
   const pratiche = usePratiche();
   const colture = useColture();
   const abb = useAbbinamenti();
-  const caricamenti = useCaricamenti(ufficioId);
+  const voci = useVoci(ufficioId);
+  const pfile = usePraticaFile(ufficioId);
 
   const [azModal, setAzModal] = useState<{ id: string; tab?: string } | null>(null);
-  const [domModal, setDomModal] = useState<{ aziendaId: string; praticaId: string } | null>(null);
+  const [voceModal, setVoceModal] = useState<string | null>(null);
   const [newAz, setNewAz] = useState(false);
   const [newDom, setNewDom] = useState(false);
 
   useEffect(() => { try { if (ufficioId) localStorage.setItem("cia-ufficio", ufficioId); } catch { /* ignore */ } }, [ufficioId]);
   // chiudi i modali quando cambi ufficio
-  useEffect(() => { setAzModal(null); setDomModal(null); }, [ufficioId]);
+  useEffect(() => { setAzModal(null); setVoceModal(null); }, [ufficioId]);
 
   const ufficio = uffici.data?.find((u) => u.id === ufficioId);
 
@@ -51,27 +53,34 @@ export function AppShell() {
     if (!ufficio) return null;
     const az = aziende.data ?? [];
     const dom = domande.data ?? [];
-    const car = caricamenti.data ?? [];
-    const pr = (pratiche.data ?? []).map((p) => ({ ...p, modello: car.some((c) => c.pratica_id === p.id && c.tipo === "modello") }));
+    const vo = voci.data ?? [];
+    const pf = pfile.data ?? [];
+    const pr = (pratiche.data ?? []).map((p) => ({ ...p, modello: pf.some((f) => f.pratica_id === p.id && f.tipo === "modello") }));
     const co = colture.data ?? [];
+    const riscontri = new Map<string, Riscontro>();
+    for (const p of pr) {
+      const vp = vo.filter((v) => v.pratica_id === p.id);
+      const fp = pf.filter((f) => f.pratica_id === p.id);
+      if (vp.length || fp.length) riscontri.set(p.id, riscontro(vp, fp));
+    }
     return {
-      ufficio, uffici: uffici.data ?? [], aziende: az, domande: dom, pratiche: pr, colture: co, abbinamenti: abb.data ?? [], caricamenti: car,
-      loading: aziende.isLoading || domande.isLoading || pratiche.isLoading || colture.isLoading,
+      ufficio, uffici: uffici.data ?? [], aziende: az, domande: dom, pratiche: pr, colture: co, abbinamenti: abb.data ?? [], voci: vo, praticaFile: pf, riscontri,
+      loading: aziende.isLoading || pratiche.isLoading || colture.isLoading || voci.isLoading || pfile.isLoading,
       azById: new Map(az.map((a) => [a.id, a])),
       praticaById: new Map(pr.map((p) => [p.id, p])),
       colturaById: new Map(co.map((c) => [c.id, c])),
       domandaByKey: new Map(dom.map((d) => [d.azienda_id + "|" + d.pratica_id, d])),
     };
-  }, [ufficio, uffici.data, aziende.data, domande.data, pratiche.data, colture.data, abb.data, caricamenti.data, aziende.isLoading, domande.isLoading, pratiche.isLoading, colture.isLoading]);
+  }, [ufficio, uffici.data, aziende.data, domande.data, pratiche.data, colture.data, abb.data, voci.data, pfile.data, aziende.isLoading, pratiche.isLoading, colture.isLoading, voci.isLoading, pfile.isLoading]);
 
   const modals = useMemo<ModalsApi>(() => ({
     apriAzienda: (id, tab) => setAzModal({ id, tab }),
-    apriDomanda: (aziendaId, praticaId) => setDomModal({ aziendaId, praticaId }),
+    apriVoce: (id) => setVoceModal(id),
     nuovaAzienda: () => setNewAz(true),
     nuovaDomanda: () => setNewDom(true),
   }), []);
 
-  const nTodo = useMemo(() => (data ? calcolaAttivita(data.aziende, data.pratiche, data.abbinamenti, data.domande).filter((a) => a.urgente).length : 0), [data]);
+  const nTodo = useMemo(() => (data ? calcolaAttivita(data.pratiche, data.riscontri).filter((a) => a.urgente).length : 0), [data]);
 
   // scorciatoia "/" per la ricerca
   useEffect(() => {
@@ -122,7 +131,7 @@ export function AppShell() {
             </nav>
             <div className="p-4 m-3 rounded-2xl bg-ink-50 text-xs text-ink-500">
               <div className="font-semibold text-ink-700 mb-0.5">Ufficio di {ufficio.nome}</div>
-              {data?.aziende.length ?? 0} aziende · {data?.domande.length ?? 0} domande
+              {data?.aziende.length ?? 0} aziende · {data?.voci.length ?? 0} domande negli elenchi
             </div>
           </aside>
 
@@ -171,7 +180,7 @@ export function AppShell() {
         {data && (
           <>
             <AziendaModal state={azModal} onClose={() => setAzModal(null)} />
-            <DomandaModal state={domModal} onClose={() => setDomModal(null)} />
+            <VoceModal id={voceModal} onClose={() => setVoceModal(null)} />
             <NuovaAziendaWizard open={newAz} onClose={() => setNewAz(false)} />
             <NuovaDomanda open={newDom} onClose={() => setNewDom(false)} />
           </>

@@ -1,6 +1,7 @@
 import type { Abbinamento, Azienda, Documento, Domanda, Esito, Pratica, StatoDomanda } from "./types";
 import { eta } from "./cf";
 import { daysFromToday, parseISO } from "./format";
+import type { Riscontro, VoceRiscontro } from "./riscontro";
 
 export const STATI: Record<StatoDomanda, { label: string; breve: string; color: string; bg: string; text: string; ring: string; desc: string }> = {
   N: { label: "Non fatta", breve: "Da fare", color: "#DC2626", bg: "bg-red-50", text: "text-red-700", ring: "ring-red-200", desc: "Nessuna domanda avviata" },
@@ -117,35 +118,30 @@ export const KIT = [
 // ---------------- Attività "Da fare" ----------------
 export type TipoAttivita = "presentare" | "completare" | "rilasciare" | "riesame";
 export interface Attivita {
-  tipo: TipoAttivita; azienda: Azienda; pratica: Pratica; domanda?: Domanda; priorita: number; urgente: boolean; dettaglio: string;
+  tipo: TipoAttivita; voce: VoceRiscontro; pratica: Pratica; priorita: number; urgente: boolean; dettaglio: string;
 }
 
 export const TIPI_ATTIVITA: Record<TipoAttivita, { label: string; desc: string; color: string }> = {
-  presentare: { label: "Da presentare", desc: "Aziende abbinate senza domanda", color: "#DC2626" },
+  presentare: { label: "Da presentare", desc: "Nell'elenco ma non ancora fatte", color: "#DC2626" },
   completare: { label: "Da completare", desc: "Domande in compilazione", color: "#EA8C0C" },
   rilasciare: { label: "Da rilasciare", desc: "Stampate, da firmare e rilasciare", color: "#2563EB" },
   riesame: { label: "Non ammesse", desc: "Senza riesame o ricorso", color: "#B91C1C" },
 };
 
-export function calcolaAttivita(aziende: Azienda[], pratiche: Pratica[], abb: Abbinamento[], domande: Domanda[]): Attivita[] {
+/** Attività aperte, calcolate dal riscontro tra l'elenco da fare e i file delle domande fatte. */
+export function calcolaAttivita(pratiche: Pratica[], riscontri: Map<string, Riscontro>): Attivita[] {
   const out: Attivita[] = [];
-  const byKey = new Map(domande.map((d) => [d.azienda_id + "|" + d.pratica_id, d]));
-  const azById = new Map(aziende.map((a) => [a.id, a]));
   for (const p of pratiche.filter((x) => x.attivo)) {
+    const r = riscontri.get(p.id);
+    if (!r) continue;
     const giorni = daysFromToday(p.scadenza);
     const scaduta = giorni != null && giorni < 0;
-    for (const [azId] of abbinate(aziende, p, abb, domande)) {
-      const a = azById.get(azId)!;
-      const d = byKey.get(azId + "|" + p.id);
-      const stato = d?.stato ?? "N";
-      if (stato === "N" && !scaduta) {
-        out.push({ tipo: "presentare", azienda: a, pratica: p, priorita: giorni ?? 999, urgente: giorni != null && giorni <= 15,
-          dettaglio: giorni != null ? `Scade ${giorni === 0 ? "oggi" : `tra ${giorni} gg`}` : "Senza scadenza" });
-      }
-      if (!d) continue;
-      if (stato === "C") out.push({ tipo: "completare", azienda: a, pratica: p, domanda: d, priorita: giorni ?? 500, urgente: giorni != null && giorni >= 0 && giorni <= 15, dettaglio: "In compilazione" });
-      if (stato === "S") out.push({ tipo: "rilasciare", azienda: a, pratica: p, domanda: d, priorita: giorni ?? 400, urgente: giorni != null && giorni >= 0 && giorni <= 15, dettaglio: d.numero ? `N. ${d.numero}` : "Stampata" });
-      if (stato === "R" && d.esito === "X" && !d.riesame) out.push({ tipo: "riesame", azienda: a, pratica: p, domanda: d, priorita: 0, urgente: true, dettaglio: d.motivi[0] ?? "Motivo non indicato" });
+    const vicina = giorni != null && giorni >= 0 && giorni <= 15;
+    for (const v of r.voci) {
+      if (v.stato === "N" && !scaduta) out.push({ tipo: "presentare", voce: v, pratica: p, priorita: giorni ?? 999, urgente: vicina, dettaglio: giorni != null ? `Scade ${giorni === 0 ? "oggi" : `tra ${giorni} gg`}` : "Senza scadenza" });
+      if (v.stato === "C") out.push({ tipo: "completare", voce: v, pratica: p, priorita: giorni ?? 500, urgente: vicina, dettaglio: "In compilazione" });
+      if (v.stato === "S") out.push({ tipo: "rilasciare", voce: v, pratica: p, priorita: giorni ?? 400, urgente: vicina, dettaglio: v.numero ? `N. ${v.numero}` : "Stampata" });
+      if (v.stato === "R" && v.esito === "X" && !v.voce.riesame) out.push({ tipo: "riesame", voce: v, pratica: p, priorita: 0, urgente: true, dettaglio: v.voce.motivi[0] ?? "Motivo non indicato" });
     }
   }
   return out.sort((x, y) => Number(y.urgente) - Number(x.urgente) || x.priorita - y.priorita);

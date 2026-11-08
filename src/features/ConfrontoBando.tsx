@@ -14,7 +14,8 @@ import { estraiTesto } from "../lib/analisi/estrazione";
 import { leggiBando, valuta, type BandoLetto, type Giudizio } from "../lib/analisi/bando";
 import { normalizza } from "../lib/analisi/classificatore";
 import { normalizeSearch, titleCase } from "../lib/format";
-import { useAbbina, useSalvaPratica } from "../lib/queries";
+import { useAggiungiVoci, useSalvaPratica } from "../lib/queries";
+import { chiaveCuaa } from "../lib/riscontro";
 import type { Criteri, Pratica } from "../lib/types";
 
 const GIUDIZI: Record<Giudizio, { l: string; desc: string; color: string }> = {
@@ -29,10 +30,10 @@ function slug(s: string) {
 }
 
 export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onClose: () => void; pratica?: Pratica | null }) {
-  const { aziende, colture, pratiche, ufficio, abbinamenti } = useUfficio();
+  const { aziende, colture, pratiche, ufficio, voci } = useUfficio();
   const { apriAzienda } = useModals();
   const salva = useSalvaPratica();
-  const abb = useAbbina();
+  const abb = useAggiungiVoci();
   const { toast } = useFeedback();
   const [fase, setFase] = useState<"carica" | "analisi" | "confronto">("carica");
   const [nomeFile, setNomeFile] = useState<string | null>(null);
@@ -76,7 +77,9 @@ export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onCl
     return risultati.filter((r) => r.v.giudizio === vista && (!n || normalizeSearch(r.a.denominazione + " " + r.a.cuaa).includes(n)))
       .sort((x, y) => x.v.mancanti - y.v.mancanti || x.a.denominazione.localeCompare(y.a.denominazione));
   }, [risultati, vista, q]);
-  const inclusiGia = new Set(pratica ? abbinamenti.filter((x) => x.pratica_id === pratica.id && x.tipo === "incluso").map((x) => x.azienda_id) : []);
+  const cuaaInElenco = new Set(pratica ? voci.filter((x) => x.pratica_id === pratica.id).map((x) => chiaveCuaa(x.cuaa)).filter(Boolean) : []);
+  const inclusiGia = new Set(aziende.filter((a) => cuaaInElenco.has(chiaveCuaa(a.cuaa))).map((a) => a.id));
+  const idoneeLibere = risultati.filter((r) => r.v.giudizio === "idonea" && !inclusiGia.has(r.a.id)).map((r) => r.a.id);
 
   const setC = <K extends keyof Criteri>(k: K, v: Criteri[K]) => setB((x) => ({ ...x, criteri: { ...x.criteri, [k]: v } }));
 
@@ -97,8 +100,10 @@ export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onCl
       } else {
         await salva.mutateAsync({ id, nome: b.nome.trim(), codice: b.codice, ente: b.ente, apertura: b.apertura, scadenza: b.scadenza, criteri: b.criteri });
       }
-      if (sel.size) await abb.mutateAsync({ pratica_id: id, aziende: [...sel], tipo: "incluso" });
-      toast("success", pratica ? "Requisiti aggiornati" : "Bando salvato", `${conta.idonea} aziende idonee${sel.size ? ` + ${sel.size} aggiunte a mano` : ""} abbinate in automatico`);
+      const daAggiungere = aziende.filter((a) => sel.has(a.id) && !inclusiGia.has(a.id));
+      const base = voci.filter((x) => x.pratica_id === id).length;
+      if (daAggiungere.length) await abb.mutateAsync(daAggiungere.map((a, i) => ({ pratica_id: id!, ufficio_id: ufficio.id, cuaa: a.cuaa, denominazione: a.denominazione, ordine: base + i })));
+      toast("success", pratica ? "Requisiti aggiornati" : "Bando salvato", daAggiungere.length ? `${daAggiungere.length} aziende aggiunte all'elenco delle domande da fare` : `${conta.idonea} aziende idonee`);
       onClose();
     } catch (e) { toast("error", "Salvataggio non riuscito", (e as Error).message); }
   };
@@ -219,16 +224,15 @@ export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onCl
                 <div className="space-y-2">
                   <AnimatePresence initial={false}>
                     {lista.slice(0, 200).map(({ a, v }) => {
-                      const selezionabile = v.giudizio !== "idonea";
                       const gia = inclusiGia.has(a.id);
                       return (
                         <motion.div key={a.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                           className={clsx("rounded-2xl ring-1 px-4 py-3 flex items-center gap-3 transition-colors", sel.has(a.id) ? "ring-brand-300 bg-brand-50/50" : "ring-ink-100 bg-white")}>
-                          {selezionabile && !gia ? <Checkbox checked={sel.has(a.id)} onChange={(x) => setSel((s) => { const n = new Set(s); if (x) n.add(a.id); else n.delete(a.id); return n; })} /> : <span className="w-5" />}
+                          {!gia ? <Checkbox checked={sel.has(a.id)} onChange={(x) => setSel((s) => { const n = new Set(s); if (x) n.add(a.id); else n.delete(a.id); return n; })} /> : <span className="w-5" />}
                           <Avatar name={a.denominazione} size={36} square={a.tipo === "PG"} />
                           <button onClick={() => apriAzienda(a.id)} className="flex-1 min-w-0 text-left">
                             <div className="font-bold text-[14.5px] truncate hover:text-brand-800">{titleCase(a.denominazione)}</div>
-                            <div className="text-[11.5px] font-mono text-ink-400">{a.cuaa}{gia && <span className="font-sans ml-2 text-brand-700 font-semibold">già aggiunta alla pratica</span>}</div>
+                            <div className="text-[11.5px] font-mono text-ink-400">{a.cuaa}{gia && <span className="font-sans ml-2 text-brand-700 font-semibold">già nell'elenco</span>}</div>
                           </button>
                           <div className="hidden md:flex flex-wrap justify-end gap-1 max-w-[55%]">
                             {v.voci.length === 0 && <span className="chip !h-6 !text-[11px] bg-ink-50 text-ink-500">Nessun requisito</span>}
@@ -249,7 +253,8 @@ export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onCl
             </div>
             <div className="px-6 py-4 border-t border-ink-100 flex items-center gap-3 bg-white">
               <div className="text-[13px] text-ink-500 flex-1">
-                Salvando, le <b className="text-ink-800">{conta.idonea}</b> aziende idonee vengono abbinate in automatico{sel.size > 0 && <>, più <b className="text-ink-800">{sel.size}</b> scelte a mano</>}.
+                {sel.size > 0 ? <>Salvando, le <b className="text-ink-800">{sel.size}</b> aziende scelte vengono aggiunte all'elenco delle domande da fare di {ufficio.nome}.</> : <><b className="text-ink-800">{conta.idonea}</b> aziende idonee: seleziona quelle da mettere nell'elenco delle domande da fare.</>}
+                {idoneeLibere.length > 0 && <button onClick={() => setSel((s) => new Set([...s, ...idoneeLibere]))} className="ml-2 font-semibold text-brand-800 hover:underline">Seleziona tutte le idonee</button>}
                 <span className="block text-[11.5px] text-ink-400">Colture richieste: {b.criteri.colture?.map((id) => nomiColture[id]).join(", ") || "nessun vincolo"}</span>
               </div>
               <Button size="lg" icon={<Check size={18} strokeWidth={2.5} />} onClick={salvaBando} loading={salva.isPending || abb.isPending}>{pratica ? "Salva requisiti" : "Salva bando"}</Button>

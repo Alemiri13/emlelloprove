@@ -64,3 +64,23 @@ export interface AnalisiSalvata {
 }
 
 export interface Storico { id: number; azienda_id: string; testo: string; utente: string | null; created_at: string }
+
+/** Riga normalizzata di un file Excel caricato in una pratica. */
+export interface RigaFile {
+  riga: number; cuaa: string | null; denominazione: string | null; stato: StatoDomanda | null;
+  numero: string | null; data: string | null; esito: Esito | null; note: string | null;
+}
+
+export interface PraticaFile {
+  id: string; pratica_id: string; ufficio_id: string; tipo: "modello" | "fatte"; nome: string; righe: RigaFile[];
+  colonne: Record<string, string>; stato_predefinito: "C" | "S" | "R"; n_righe: number; storage_path: string | null;
+  created_at: string; created_by: string | null;
+}
+
+/** Riga dell'elenco «domande da fare» di una pratica (indipendente dall'anagrafica). */
+export interface Voce {
+  id: string; pratica_id: string; ufficio_id: string; file_id: string | null; cuaa: string | null; denominazione: string | null;
+  extra: Record<string, unknown>; stato_manuale: StatoDomanda | null; numero: string | null; data_presentazione: string | null;
+  esito: Esito | null; motivi: string[]; riesame: string | null; note: string | null; ordine: number;
+  created_at: string; updated_at: string; updated_by: string | null;
+}

@@ -1,15 +1,15 @@
 /**
- * Importazione massiva da Excel: aziende e domande.
+ * Importazione massiva dell'anagrafica (aziende) da Excel.
+ * Gli elenchi delle pratiche NON passano da qui: non toccano l'anagrafica (vedi riscontro.ts).
  * Regole:
  *  - le celle vuote non cancellano i dati esistenti (si aggiornano solo i campi pieni);
- *  - i CUAA sconosciuti diventano nuove aziende dell'ufficio (dati anagrafici ricavati dal codice fiscale);
+ *  - i CUAA nuovi diventano nuove aziende dell'ufficio (dati anagrafici ricavati dal codice fiscale);
  *  - inserimenti e aggiornamenti a blocchi, raggruppati per insieme di colonne.
  */
 import { check, supabase } from "./supabase";
 import { tutte } from "./queries";
 import { decodeCuaa, normalizzaCuaa } from "./cf";
 import { normalizza } from "./analisi/classificatore";
-import type { Esito, StatoDomanda } from "./types";
 
 const BLOCCO = 400;
 
@@ -130,146 +130,4 @@ export async function importaAziende(righe: RigaAzienda[], uffici: string[], onF
     onFase?.(`Ufficio ${u} completato`, passo / uffici.length);
   }
   return esito;
-}
-
-// =====================================================================
-// ELENCHI DELLE PRATICHE: «domande da fare» (modello) e «domande fatte»
-// =====================================================================
-export interface RigaElenco {
-  file: string; riga: number;
-  cuaa: string | null; denominazione: string | null;
-  stato: StatoDomanda | null; numero: string | null; data_presentazione: string | null;
-  esito: Esito | null; motivi: string[]; data_esito: string | null; litri_assegnati: number | null; note: string | null;
-}
-
-export type Esame =
-  | { tipo: "azienda"; aziendaId: string; come: "cuaa" | "nome" }
-  | { tipo: "nuova"; cuaa: string; denominazione: string }
-  | { tipo: "scartata"; motivo: string };
-
-export interface Contesto {
-  aziende: { id: string; cuaa: string; denominazione: string }[];
-  membri: Set<string>;            // aziende già nell'elenco della pratica (modello) o con domanda
-  stati: Map<string, StatoDomanda>; // stato attuale per azienda
-}
-
-export interface Piano {
-  tipo: "modello" | "fatte";
-  righe: RigaElenco[];
-  esami: Esame[];
-  /** una voce per azienda (le righe ripetute nei vari file vengono fuse, prevale lo stato più avanzato) */
-  voci: { chiave: string; esame: Exclude<Esame, { tipo: "scartata" }>; riga: RigaElenco; stato: StatoDomanda; prima: StatoDomanda | null; fuori: boolean }[];
-  scartate: { file: string; riga: number; nome: string; motivo: string }[];
-  conflitti: number;
-  conteggi: { nuoveAziende: number; giaPresenti: number; fuori: number; nuove: number; aggiornate: number; invariate: number; perStato: Record<StatoDomanda, number> };
-}
-
-const ORDINE: Record<StatoDomanda, number> = { N: 0, C: 1, S: 2, R: 3 };
-
-export function pianifica(tipo: "modello" | "fatte", righe: RigaElenco[], ctx: Contesto, statoPredefinito: StatoDomanda): Piano {
-  const perCuaa = new Map(ctx.aziende.map((a) => [a.cuaa, a.id]));
-  const perNome = new Map<string, string | null>();
-  for (const a of ctx.aziende) { const k = chiaveNome(a.denominazione); perNome.set(k, perNome.has(k) ? null : a.id); }
-  const esami: Esame[] = righe.map((r) => {
-    const c = r.cuaa ? normalizzaCuaa(r.cuaa) : "";
-    const valido = /^([A-Z0-9]{16}|\d{11})$/.test(c);
-    if (valido && perCuaa.has(c)) return { tipo: "azienda", aziendaId: perCuaa.get(c)!, come: "cuaa" };
-    if (r.denominazione) {
-      const k = chiaveNome(r.denominazione);
-      const id = perNome.get(k);
-      if (!valido && id) return { tipo: "azienda", aziendaId: id, come: "nome" };
-      if (valido) return { tipo: "nuova", cuaa: c, denominazione: r.denominazione.trim().toUpperCase() };
-      if (perNome.has(k) && id === null) return { tipo: "scartata", motivo: "più aziende con questo nome: serve il CUAA" };
-      return { tipo: "scartata", motivo: "non presente in anagrafica e senza CUAA" };
-    }
-    if (valido) return { tipo: "scartata", motivo: `CUAA ${c} non in anagrafica e senza nominativo` };
-    return { tipo: "scartata", motivo: r.cuaa ? `CUAA non valido (${r.cuaa})` : "riga senza CUAA né nominativo" };
-  });
-
-  const voci = new Map<string, Piano["voci"][number]>();
-  const scartate: Piano["scartate"] = [];
-  let conflitti = 0;
-  righe.forEach((r, i) => {
-    const e = esami[i];
-    if (e.tipo === "scartata") { scartate.push({ file: r.file, riga: r.riga, nome: r.denominazione ?? r.cuaa ?? "?", motivo: e.motivo }); return; }
-    const chiave = e.tipo === "azienda" ? e.aziendaId : "nuova:" + e.cuaa;
-    const prima = e.tipo === "azienda" ? ctx.stati.get(e.aziendaId) ?? null : null;
-    // nell'elenco «da fare» senza colonna di stato non si tocca lo stato di chi l'ha già
-    const st: StatoDomanda = r.stato ?? (tipo === "modello" ? prima ?? "N" : statoPredefinito);
-    const fuori = tipo === "fatte" && (e.tipo === "nuova" || !ctx.membri.has(e.aziendaId));
-    const esistente = voci.get(chiave);
-    if (esistente) {
-      if (esistente.stato !== st) conflitti++;
-      if (ORDINE[st] > ORDINE[esistente.stato]) voci.set(chiave, { ...esistente, stato: st, riga: { ...esistente.riga, ...pulisciRiga(r) } });
-      else voci.set(chiave, { ...esistente, riga: { ...pulisciRiga(r), ...pulisciRiga(esistente.riga) } as RigaElenco });
-    } else voci.set(chiave, { chiave, esame: e, riga: r, stato: st, prima, fuori });
-  });
-
-  const lista = [...voci.values()];
-  const perStato: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
-  lista.forEach((v) => perStato[v.stato]++);
-  return {
-    tipo, righe, esami, voci: lista, scartate, conflitti,
-    conteggi: {
-      nuoveAziende: lista.filter((v) => v.esame.tipo === "nuova").length,
-      giaPresenti: lista.filter((v) => v.esame.tipo === "azienda" && ctx.membri.has(v.esame.aziendaId)).length,
-      fuori: lista.filter((v) => v.fuori).length,
-      nuove: lista.filter((v) => (v.prima ?? "N") === "N" && v.stato !== "N").length,
-      aggiornate: lista.filter((v) => v.prima && v.prima !== "N" && v.prima !== v.stato).length,
-      invariate: lista.filter((v) => (v.prima ?? "N") === v.stato).length,
-      perStato,
-    },
-  };
-}
-
-function pulisciRiga(r: RigaElenco) {
-  return Object.fromEntries(Object.entries(r).filter(([, v]) => v != null && v !== "" && !(Array.isArray(v) && !v.length))) as Partial<RigaElenco>;
-}
-
-/** Scrive il piano: crea le aziende nuove, aggiorna l'elenco della pratica e gli stati, registra il caricamento. */
-export async function eseguiPiano(params: {
-  piano: Piano; ufficio: string; praticaId: string; aggiungiFuori: boolean; fileNames: string[];
-  onFase?: (msg: string, p: number) => void;
-}) {
-  const { piano, ufficio, praticaId, aggiungiFuori, fileNames, onFase } = params;
-  let voci = piano.voci;
-  if (piano.tipo === "fatte" && !aggiungiFuori) voci = voci.filter((v) => !v.fuori);
-
-  // 1. aziende nuove
-  const nuove = voci.filter((v) => v.esame.tipo === "nuova").map((v) => v.esame as Extract<Esame, { tipo: "nuova" }>);
-  const idNuove = new Map<string, string>();
-  if (nuove.length) {
-    onFase?.(`Creo ${nuove.length} nuove aziende in anagrafica`, 0.1);
-    await upsertRaggruppato("aziende", nuove.map((n) => ({ ufficio_id: ufficio, cuaa: n.cuaa, denominazione: n.denominazione, biologico: false, iap: false, uma: false, ...pulisci(anagraficaDaCuaa(n.cuaa)) })), "ufficio_id,cuaa");
-    const ids = await aziendeUfficio(ufficio);
-    ids.forEach((a) => idNuove.set(a.cuaa, a.id));
-  }
-  const idDi = (v: Piano["voci"][number]) => (v.esame.tipo === "azienda" ? v.esame.aziendaId : idNuove.get(v.esame.cuaa)!);
-
-  // 2. elenco della pratica (modello) o aggiunta dei «fuori elenco»
-  const daIncludere = voci.filter((v) => piano.tipo === "modello" || v.fuori).map(idDi).filter(Boolean);
-  if (daIncludere.length) {
-    onFase?.(piano.tipo === "modello" ? `Salvo l'elenco: ${daIncludere.length} aziende` : `Aggiungo ${daIncludere.length} aziende fuori elenco`, 0.3);
-    for (let i = 0; i < daIncludere.length; i += BLOCCO) {
-      check(await supabase.from("pratica_abbinamenti").upsert(daIncludere.slice(i, i + BLOCCO).map((azienda_id) => ({ pratica_id: praticaId, azienda_id, tipo: "incluso" })), { onConflict: "pratica_id,azienda_id" }));
-    }
-  }
-
-  // 3. domande: solo dove c'è uno stato da registrare (nel modello di norma tutte «da fare» = nessun record)
-  const domande = voci.filter((v) => (v.stato !== "N" || v.prima != null) && v.stato !== v.prima || (v.riga.numero || v.riga.data_presentazione || v.riga.esito))
-    .filter((v) => piano.tipo === "fatte" || v.riga.stato != null).map((v) => pulisci({
-    azienda_id: idDi(v), pratica_id: praticaId, stato: v.stato, numero: v.riga.numero, data_presentazione: v.riga.data_presentazione,
-    esito: v.riga.esito, motivi: v.riga.motivi?.length ? v.riga.motivi : null, data_esito: v.riga.data_esito, litri_assegnati: v.riga.litri_assegnati, note: v.riga.note,
-  }));
-  if (domande.length) {
-    onFase?.(`Aggiorno ${domande.length} domande`, 0.5);
-    await upsertRaggruppato("domande", domande, "azienda_id,pratica_id", (n) => onFase?.(`Aggiornate ${n} di ${domande.length}`, 0.5 + 0.4 * (n / domande.length)));
-  }
-
-  // 4. registro del caricamento
-  check(await supabase.from("pratica_caricamenti").insert({
-    pratica_id: praticaId, ufficio_id: ufficio, tipo: piano.tipo, file_names: fileNames, righe: piano.righe.length,
-    riepilogo: { ...piano.conteggi, scartate: piano.scartate.length, conflitti: piano.conflitti, aggiuntiFuori: aggiungiFuori ? piano.conteggi.fuori : 0 },
-  }));
-  onFase?.("Fatto", 1);
 }

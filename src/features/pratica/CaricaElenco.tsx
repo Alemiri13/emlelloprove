@@ -1,51 +1,89 @@
+import { AlertTriangle, Check, ChevronDown, CircleDashed, FileSpreadsheet, PenLine, Printer, Send, Trash2, UploadCloud, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Check, ChevronDown, CircleDashed, FileSpreadsheet, ListChecks, PenLine, Printer, Send, Trash2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Wizard, type WizardStep } from "../../components/ui/Wizard";
-import { ChoiceCard, Toggle } from "../../components/ui/Inputs";
+import { ChoiceCard } from "../../components/ui/Inputs";
 import { Select } from "../../components/ui/Select";
 import { useFeedback } from "../../components/ui/Feedback";
 import { useUfficio } from "../../lib/ufficio";
-import { abbinate, STATI } from "../../lib/domain";
+import { STATI } from "../../lib/domain";
 import { fileSize, titleCase } from "../../lib/format";
 import {
-  analizzaFile, CAMPI_DOMANDA, cuaaDa, data, esito as esitoDa, leggiExcel, numero, stato as statoDa, testo, valore,
+  analizzaFile, CAMPI_DOMANDA, cuaaDa, data, esito as esitoDa, leggiExcel, stato as statoDa, testo, valore,
   type Analisi, type KDomanda,
 } from "../../lib/excel";
-import { eseguiPiano, pianifica, type Contesto, type Piano, type RigaElenco } from "../../lib/importazione";
-import type { Pratica, StatoDomanda } from "../../lib/types";
+import { useAggiungiVoci, useCaricaFatte, useCaricaModello, type NuovoFile } from "../../lib/queries";
+import { chiaveCuaa, chiaveNome, riscontro, type Fonte } from "../../lib/riscontro";
+import type { Pratica, PraticaFile, RigaFile } from "../../lib/types";
 import { Avanzamento, Numero } from "../import/Comuni";
+import { NOME_STATO } from "./ElencoVoci";
 
 interface FileCaricato { id: string; file: File; analisi: Analisi<KDomanda>[]; scelta: number; errore?: string }
 
 const CHIAVE: KDomanda[] = ["cuaa", "denominazione", "stato"];
 
+/** Righe normalizzate di un file analizzato. */
+function righeDa(f: FileCaricato): { righe: RigaFile[]; colonne: Record<string, string> } {
+  const a = f.analisi[f.scelta];
+  const colonne: Record<string, string> = {};
+  for (const [k, m] of Object.entries(a.mappa)) if (m) colonne[k] = a.intestazioni[(m as { col: number }).col];
+  const righe = a.righe.map((r, i): RigaFile => {
+    const grezzo = valore(a, r, "cuaa");
+    const c = cuaaDa(grezzo);
+    return {
+      riga: i + 2 + (a.rigaIntestazione || 0),
+      cuaa: c?.cuaa ?? (testo(grezzo)?.toUpperCase().replace(/\s+/g, "") || null),
+      denominazione: testo(valore(a, r, "denominazione")),
+      stato: a.mappa.stato ? statoDa(valore(a, r, "stato")) : null,
+      numero: testo(valore(a, r, "numero")),
+      data: data(valore(a, r, "data_presentazione")),
+      esito: esitoDa(valore(a, r, "esito")),
+      note: testo(valore(a, r, "note")),
+    };
+  }).filter((x) => x.cuaa || x.denominazione);
+  return { righe, colonne };
+}
+
+const chiaveRiga = (r: { cuaa: string | null; denominazione: string | null }) => chiaveCuaa(r.cuaa) || "n:" + chiaveNome(r.denominazione);
+
+/**
+ * Caricamento di un file Excel in una pratica:
+ *  - «modello»: l'elenco delle domande da fare (uno solo, si può sostituire o integrare);
+ *  - «fatte»: uno o più file delle domande fatte / stampate / in compilazione.
+ * Non crea né modifica aziende in anagrafica.
+ */
 export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; onClose: () => void; pratica: Pratica; tipo: "modello" | "fatte" }) {
-  const { ufficio, aziende, abbinamenti, domande } = useUfficio();
-  const qc = useQueryClient();
-  const nav = useNavigate();
+  const { ufficio, voci, praticaFile } = useUfficio();
   const { toast } = useFeedback();
+  const caricaModello = useCaricaModello();
+  const caricaFatte = useCaricaFatte();
+  const aggiungiVoci = useAggiungiVoci();
   const [step, setStep] = useState(0);
   const [files, setFiles] = useState<FileCaricato[]>([]);
-  const [statoDef, setStatoDef] = useState<StatoDomanda>("R");
-  const [aggiungiFuori, setAggiungiFuori] = useState(true);
-  const [lavoro, setLavoro] = useState<{ msg: string; p: number } | null>(null);
-  const [fatto, setFatto] = useState<Piano | null>(null);
+  const [statoDef, setStatoDef] = useState<"C" | "S" | "R">("R");
+  const [modo, setModo] = useState<"sostituisci" | "integra">("sostituisci");
+  const [lavoro, setLavoro] = useState<string | null>(null);
+  const [fatto, setFatto] = useState(false);
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const isModello = tipo === "modello";
 
-  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("R"); setAggiungiFuori(true); setLavoro(null); setFatto(null); } }, [open]);
+  const miei = useMemo(() => praticaFile.filter((f) => f.pratica_id === pratica.id), [praticaFile, pratica.id]);
+  const precedente = miei.find((f) => f.tipo === "modello") ?? null;
+  const vociPratica = useMemo(() => voci.filter((v) => v.pratica_id === pratica.id), [voci, pratica.id]);
+
+  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("R"); setModo("sostituisci"); setLavoro(null); setFatto(false); } }, [open]);
 
   const aggiungi = async (lista: FileList | File[]) => {
-    for (const file of [...lista]) {
+    const nuovi = [...lista].slice(0, isModello ? 1 : 20);
+    if (isModello) setFiles([]);
+    for (const file of nuovi) {
       const id = crypto.randomUUID();
       setFiles((x) => [...x, { id, file, analisi: [], scelta: 0 }]);
       try {
         const fogli = await leggiExcel(file);
-        const analisi = analizzaFile(fogli, CAMPI_DOMANDA, /domand|elenco|fatt|rilasc/i).filter((a) => a.righe.length > 0);
+        const analisi = analizzaFile(fogli, CAMPI_DOMANDA, /domand|elenco|fatt|rilasc|stamp/i).filter((a) => a.righe.length > 0);
         if (!analisi.length) throw new Error("nessun dato trovato");
         setFiles((x) => x.map((f) => (f.id === id ? { ...f, analisi } : f)));
       } catch (e) {
@@ -56,7 +94,6 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const setMappa = (id: string, k: KDomanda, col: number | null) => setFiles((x) => x.map((f) => {
     if (f.id !== id) return f;
     const a = { ...f.analisi[f.scelta], mappa: { ...f.analisi[f.scelta].mappa } };
-    // una colonna = un campo
     for (const kk of Object.keys(a.mappa) as KDomanda[]) if (col != null && a.mappa[kk]?.col === col) delete a.mappa[kk];
     if (col == null) delete a.mappa[k]; else a.mappa[k] = { col, confidenza: 1, perche: "scelta a mano" };
     const analisi = [...f.analisi]; analisi[f.scelta] = a;
@@ -64,160 +101,159 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   }));
 
   const validi = useMemo(() => files.filter((f) => f.analisi.length && !f.errore), [files]);
-  const senzaStato = validi.some((f) => !f.analisi[f.scelta].mappa.stato);
+  const parsed = useMemo(() => (step >= 2 ? validi.map((f) => ({ f, ...righeDa(f) })) : []), [validi, step]);
 
-  const righe: RigaElenco[] = useMemo(() => validi.flatMap((f) => {
-    const a = f.analisi[f.scelta];
-    return a.righe.map((r, i) => {
-      const c = cuaaDa(valore(a, r, "cuaa"));
-      const st = a.mappa.stato ? statoDa(valore(a, r, "stato")) : null;
-      return {
-        file: f.file.name, riga: i + 1 + (a.rigaIntestazione || 0),
-        cuaa: c?.cuaa ?? testo(valore(a, r, "cuaa")), denominazione: testo(valore(a, r, "denominazione")),
-        stato: st, numero: testo(valore(a, r, "numero")), data_presentazione: data(valore(a, r, "data_presentazione")),
-        esito: esitoDa(valore(a, r, "esito")), motivi: (testo(valore(a, r, "motivi")) ?? "").split(/;|\n/).map((x) => x.trim()).filter(Boolean),
-        data_esito: data(valore(a, r, "data_esito")), litri_assegnati: numero(valore(a, r, "litri_assegnati")), note: testo(valore(a, r, "note")),
-      } satisfies RigaElenco;
-    }).filter((x) => x.cuaa || x.denominazione);
-  }), [validi]);
+  // ---------- anteprima: elenco da fare ----------
+  const anteprimaModello = useMemo(() => {
+    if (!isModello || !parsed[0]) return null;
+    const visti = new Set<string>();
+    const unici: RigaFile[] = [];
+    let doppioni = 0;
+    for (const r of parsed[0].righe) { const k = chiaveRiga(r); if (visti.has(k)) { doppioni++; continue; } visti.add(k); unici.push(r); }
+    const presenti = new Set(vociPratica.map(chiaveRiga));
+    const nuoviDaIntegrare = unici.filter((r) => !presenti.has(chiaveRiga(r)));
+    const senzaCuaa = unici.filter((r) => !r.cuaa).length;
+    const finte = unici.map((r, i) => ({ id: "x" + i, pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: null, cuaa: r.cuaa, denominazione: r.denominazione, extra: {}, stato_manuale: null, numero: null, data_presentazione: null, esito: null, motivi: [], riesame: null, note: r.note, ordine: i, created_at: "", updated_at: "", updated_by: null }));
+    const ris = miei.some((f) => f.tipo === "fatte") ? riscontro(finte, miei) : null;
+    return { unici, doppioni, senzaCuaa, nuoviDaIntegrare, ris };
+  }, [isModello, parsed, vociPratica, miei, pratica.id, ufficio.id]);
 
-  const ctx: Contesto = useMemo(() => {
-    const membri = new Set(abbinate(aziende, pratica, abbinamenti, domande).keys());
-    const stati = new Map(domande.filter((d) => d.pratica_id === pratica.id).map((d) => [d.azienda_id, d.stato]));
-    return { aziende, membri, stati };
-  }, [aziende, pratica, abbinamenti, domande]);
-
-  const piano = useMemo(() => (step >= 2 && righe.length ? pianifica(tipo, righe, ctx, statoDef) : null), [step, righe, ctx, tipo, statoDef]);
-
-  // aziende dell'elenco che restano da fare dopo questo caricamento
-  const restanoDaFare = useMemo(() => {
-    if (!piano || tipo !== "fatte") return 0;
-    const nuovoStato = new Map(ctx.stati);
-    piano.voci.forEach((v) => { if (v.esame.tipo === "azienda" && (!v.fuori || aggiungiFuori)) nuovoStato.set(v.esame.aziendaId, v.stato); });
-    return [...ctx.membri].filter((id) => (nuovoStato.get(id) ?? "N") === "N").length;
-  }, [piano, ctx, tipo, aggiungiFuori]);
+  // ---------- anteprima: domande fatte ----------
+  const anteprimaFatte = useMemo(() => {
+    if (isModello || !parsed.length) return null;
+    const ora = new Date().toISOString();
+    const nuovi: PraticaFile[] = parsed.map(({ f, righe, colonne }) => ({ id: "nuovo-" + f.id, pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "fatte", nome: f.file.name, righe, colonne, stato_predefinito: statoDef, n_righe: righe.length, storage_path: null, created_at: ora, created_by: null }));
+    const prima = riscontro(vociPratica, miei);
+    const dopo = riscontro(vociPratica, [...miei, ...nuovi]);
+    const cambiano = dopo.voci.filter((v, i) => v.stato !== prima.voci[i].stato).length;
+    const fuoriNuovi = dopo.fuori.filter((x) => x.file.id.startsWith("nuovo-"));
+    return { nuovi, prima, dopo, cambiano, fuoriNuovi };
+  }, [isModello, parsed, statoDef, vociPratica, miei, pratica.id, ufficio.id]);
 
   const esegui = async () => {
-    if (!piano) return;
-    setLavoro({ msg: "Avvio", p: 0 });
     try {
-      await eseguiPiano({ piano, ufficio: ufficio.id, praticaId: pratica.id, aggiungiFuori, fileNames: validi.map((f) => f.file.name), onFase: (msg, p) => setLavoro({ msg, p }) });
-      await Promise.all(["domande", "aziende", "abbinamenti", "caricamenti", "riepilogo-uffici", "storico"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
-      setFatto(piano);
+      if (isModello && anteprimaModello && parsed[0]) {
+        if (precedente && modo === "integra") {
+          setLavoro("Aggiungo i nuovi nominativi all'elenco…");
+          const base = vociPratica.reduce((m, v) => Math.max(m, v.ordine), 0) + 1;
+          await aggiungiVoci.mutateAsync(anteprimaModello.nuoviDaIntegrare.map((r, i) => ({ pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: precedente.id, cuaa: r.cuaa, denominazione: r.denominazione, note: r.note, ordine: base + i })));
+        } else {
+          setLavoro("Salvo l'elenco delle domande da fare…");
+          const nuovo: NuovoFile = { file: parsed[0].f.file, righe: anteprimaModello.unici, colonne: parsed[0].colonne };
+          await caricaModello.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, nuovo, precedente });
+        }
+      } else if (!isModello) {
+        setLavoro("Salvo i file e faccio il riscontro…");
+        await caricaFatte.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, stato_predefinito: statoDef, nuovi: parsed.map(({ f, righe, colonne }) => ({ file: f.file, righe, colonne })) });
+      }
+      setFatto(true);
     } catch (e) { toast("error", "Caricamento non riuscito", (e as Error).message); }
     finally { setLavoro(null); }
   };
 
-  const titoloModello = tipo === "modello";
-  const steps: WizardStep[] = fatto ? [{
-    key: "fatto", title: "Fatto", question: titoloModello ? "Elenco delle domande da fare salvato" : "Stati aggiornati",
-    hint: titoloModello ? "Ora, quando hai l'elenco delle domande fatte, caricalo dalla pagina della pratica: farò il confronto." : "Le aziende che non hanno ancora la domanda sono in «Da fare».",
+  const fileStep: WizardStep = {
+    key: "file", title: "File", canNext: validi.length > 0 && files.every((f) => f.analisi.length || f.errore),
+    question: isModello ? (precedente ? "Carica il nuovo elenco delle domande da fare" : "Carica l'elenco delle domande da fare") : "Carica le domande fatte, stampate o in compilazione",
+    hint: isModello
+      ? "Un file Excel con i nominativi che devono fare questa domanda. Resta salvato nella pratica: potrai modificarlo, sostituirlo o eliminarlo. L'anagrafica non viene toccata."
+      : "Anche più file insieme (per esempio le rilasciate e le stampate). Li confronto con l'elenco delle domande da fare.",
     content: (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {titoloModello ? (<>
-            <Numero v={fatto.voci.length} l="Aziende nell'elenco" tone="green" />
-            <Numero v={fatto.conteggi.nuoveAziende} l="Create in anagrafica" tone="blue" />
-            <Numero v={fatto.scartate.length} l="Righe scartate" tone={fatto.scartate.length ? "red" : "neutral"} />
-            <Numero v={fatto.conflitti} l="Doppioni fusi" />
-          </>) : (<>
-            <Numero v={fatto.conteggi.perStato.R} l="Fatte" tone="green" />
-            <Numero v={fatto.conteggi.perStato.S} l="Stampate" tone="blue" />
-            <Numero v={fatto.conteggi.perStato.C} l="In compilazione" tone="amber" />
-            <Numero v={restanoDaFare} l="Restano da fare" tone="red" />
-          </>)}
-        </div>
-        {!titoloModello && (
-          <button onClick={() => { onClose(); nav(`/u/${ufficio.id}/da-fare?pratica=${pratica.id}`); }}
-            className="w-full flex items-center gap-4 rounded-2xl bg-brand-800 text-white px-5 py-4 text-left hover:bg-brand-900 transition active:scale-[.99]">
-            <ListChecks size={22} /><span className="flex-1 font-bold">Apri «Da fare» per questa pratica</span><span className="text-white/70 text-sm">{restanoDaFare} aziende</span>
-          </button>
-        )}
-        {fatto.scartate.length > 0 && <Scartate righe={fatto.scartate} />}
+        <motion.div
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); aggiungi(e.dataTransfer.files); }}
+          onClick={() => input.current?.click()} animate={{ scale: drag ? 1.015 : 1 }}
+          className={clsx("cursor-pointer rounded-3xl border-2 border-dashed text-center transition-colors", files.length ? "p-5" : "p-10", drag ? "border-brand-500 bg-brand-50" : "border-ink-200 hover:border-brand-300 hover:bg-brand-50/40")}
+        >
+          <div className={clsx("mx-auto rounded-2xl bg-brand-50 text-brand-700 grid place-items-center", files.length ? "h-10 w-10 mb-2" : "h-16 w-16 mb-4")}><UploadCloud size={files.length ? 20 : 30} /></div>
+          <div className="font-bold">{files.length ? (isModello ? "Scegli un altro file" : "Aggiungi altri file") : "Trascina qui il file Excel"}</div>
+          {!files.length && <div className="text-sm text-ink-500 mt-1">oppure <span className="text-brand-700 font-semibold">sfoglia</span> · .xlsx, .xls, .csv{isModello ? "" : " · anche più file"}</div>}
+        </motion.div>
+        <input ref={input} type="file" multiple={!isModello} accept=".xlsx,.xls,.xlsm,.csv,.ods" className="hidden" onChange={(e) => { if (e.target.files) aggiungi(e.target.files); e.target.value = ""; }} />
+        {files.map((f) => <SchedaFile key={f.id} f={f} onRemove={() => setFiles((x) => x.filter((y) => y.id !== f.id))} onFoglio={(i) => setFiles((x) => x.map((y) => (y.id === f.id ? { ...y, scelta: i } : y)))} />)}
       </div>
     ),
-  }] : lavoro ? [{ key: "lavoro", title: "Salvataggio", question: "Salvataggio in corso…", canNext: false, content: <Avanzamento msg={lavoro.msg} p={lavoro.p} /> }] : [
-    {
-      key: "file", title: "File", canNext: validi.length > 0 && files.every((f) => f.analisi.length || f.errore),
-      question: titoloModello ? "Carica l'elenco delle domande da fare" : "Carica l'elenco delle domande fatte",
-      hint: titoloModello
-        ? "È il modello della pratica: le aziende che devono fare questa domanda. Si carica una volta e resta fisso."
-        : "Puoi caricare più file insieme (per esempio rilasciate e stampate). Lo confronto con l'elenco delle domande da fare.",
-      content: (
-        <div className="space-y-4">
-          <motion.div
-            onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-            onDrop={(e) => { e.preventDefault(); setDrag(false); aggiungi(e.dataTransfer.files); }}
-            onClick={() => input.current?.click()} animate={{ scale: drag ? 1.015 : 1 }}
-            className={clsx("cursor-pointer rounded-3xl border-2 border-dashed text-center transition-colors", files.length ? "p-5" : "p-10", drag ? "border-brand-500 bg-brand-50" : "border-ink-200 hover:border-brand-300 hover:bg-brand-50/40")}
-          >
-            <div className={clsx("mx-auto rounded-2xl bg-brand-50 text-brand-700 grid place-items-center", files.length ? "h-10 w-10 mb-2" : "h-16 w-16 mb-4")}><UploadCloud size={files.length ? 20 : 30} /></div>
-            <div className="font-bold">{files.length ? "Aggiungi altri file" : "Trascina qui i file Excel"}</div>
-            {!files.length && <div className="text-sm text-ink-500 mt-1">oppure <span className="text-brand-700 font-semibold">sfoglia</span> · .xlsx, .xls, .csv · anche più file</div>}
-          </motion.div>
-          <input ref={input} type="file" multiple accept=".xlsx,.xls,.xlsm,.csv,.ods" className="hidden" onChange={(e) => { if (e.target.files) aggiungi(e.target.files); e.target.value = ""; }} />
-          {files.map((f) => <SchedaFile key={f.id} f={f} onRemove={() => setFiles((x) => x.filter((y) => y.id !== f.id))} onFoglio={(i) => setFiles((x) => x.map((y) => (y.id === f.id ? { ...y, scelta: i } : y)))} />)}
+  };
+
+  const colonneStep: WizardStep = {
+    key: "colonne", title: "Colonne", question: "Ho riconosciuto queste colonne",
+    hint: "Riconosciute dall'intestazione e dal contenuto. Correggi solo se serve.",
+    canNext: validi.every((f) => f.analisi[f.scelta].mappa.cuaa || f.analisi[f.scelta].mappa.denominazione || (f.analisi[f.scelta].mappa.cognome && f.analisi[f.scelta].mappa.nome)),
+    content: (
+      <div className="space-y-6">
+        {validi.map((f) => <MappaFile key={f.id} f={f} onChange={(k, c) => setMappa(f.id, k, c)} />)}
+        {!isModello && (
+          <div>
+            <span className="label">Cosa contengono questi file?</span>
+            <p className="text-[13px] text-ink-500 -mt-1 mb-3">Vale per le righe senza uno stato riconoscibile{validi.some((f) => f.analisi[f.scelta].mappa.stato) ? " (dove c'è la colonna «stato» uso quella)" : ""}.</p>
+            <div className="grid sm:grid-cols-3 gap-2.5">
+              {([["R", <Send size={18} key="r" />], ["S", <Printer size={18} key="s" />], ["C", <PenLine size={18} key="c" />]] as const).map(([k, ic]) => (
+                <ChoiceCard key={k} selected={statoDef === k} onClick={() => setStatoDef(k)} icon={ic} title={NOME_STATO[k]} color={STATI[k].color} className="!p-3" />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    ),
+  };
+
+  const m = anteprimaModello;
+  const fa = anteprimaFatte;
+  const riepilogoStep: WizardStep = {
+    key: "riepilogo", title: isModello ? "Controllo" : "Riscontro", question: isModello ? "Controllo dell'elenco" : "Riscontro con l'elenco delle domande da fare",
+    content: isModello ? (m ? (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <Numero v={m.unici.length} l="Nominativi" tone="green" />
+          <Numero v={m.doppioni} l="Doppioni tolti" />
+          <Numero v={m.senzaCuaa} l="Senza CUAA" tone={m.senzaCuaa ? "amber" : "neutral"} />
         </div>
-      ),
-    },
-    {
-      key: "colonne", title: "Colonne", question: "Ho riconosciuto queste colonne",
-      hint: "Ogni colonna è stata riconosciuta dall'intestazione e dal contenuto. Correggi solo se serve.",
-      canNext: validi.every((f) => f.analisi[f.scelta].mappa.cuaa || f.analisi[f.scelta].mappa.denominazione || (f.analisi[f.scelta].mappa.cognome && f.analisi[f.scelta].mappa.nome)),
-      content: (
-        <div className="space-y-6">
-          {validi.map((f) => <MappaFile key={f.id} f={f} onChange={(k, c) => setMappa(f.id, k, c)} />)}
-          {tipo === "fatte" && senzaStato && (
-            <div>
-              <span className="label">Stato per i file senza colonna «stato»</span>
-              <div className="grid sm:grid-cols-3 gap-2.5">
-                {([["R", <Send size={18} key="r" />], ["S", <Printer size={18} key="s" />], ["C", <PenLine size={18} key="c" />]] as const).map(([k, ic]) => (
-                  <ChoiceCard key={k} selected={statoDef === k} onClick={() => setStatoDef(k)} icon={ic} title={STATI[k].label} color={STATI[k].color} className="!p-3" />
-                ))}
-              </div>
+        {precedente && (
+          <div className="grid sm:grid-cols-2 gap-2.5">
+            <ChoiceCard selected={modo === "sostituisci"} onClick={() => setModo("sostituisci")} title="Sostituisci l'elenco" desc={`Tolgo le ${vociPratica.length} righe attuali (e gli stati messi a mano) e uso il nuovo file.`} />
+            <ChoiceCard selected={modo === "integra"} onClick={() => setModo("integra")} title="Aggiungi solo i nuovi" desc={`Tengo l'elenco attuale e aggiungo ${m.nuoviDaIntegrare.length} nominativi che mancano.`} />
+          </div>
+        )}
+        {m.ris && (
+          <div className="rounded-2xl ring-1 ring-ink-100 p-4">
+            <div className="text-[13px] font-semibold text-ink-600 mb-3">Con i file delle domande fatte già caricati risulterebbero:</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={m.ris!.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
             </div>
-          )}
+          </div>
+        )}
+        {m.senzaCuaa > 0 && <p className="text-[13px] text-amber-800 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" />Le righe senza CUAA si confrontano per nominativo: funziona se il nome è scritto allo stesso modo nei file.</p>}
+        <p className="text-[12.5px] text-ink-500">L'anagrafica non viene modificata: l'elenco vale solo per questa pratica nell'ufficio di {ufficio.nome}.</p>
+      </div>
+    ) : null) : (fa ? (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {(["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={fa.dopo.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
         </div>
-      ),
-    },
-    {
-      key: "confronto", title: "Confronto", question: titoloModello ? "Controllo dell'elenco" : "Confronto con l'elenco delle domande da fare",
-      content: piano ? (
-        <div className="space-y-4">
-          {titoloModello ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Numero v={piano.voci.length} l="Aziende nell'elenco" tone="green" />
-              <Numero v={piano.voci.length - piano.conteggi.nuoveAziende} l="Già in anagrafica" />
-              <Numero v={piano.conteggi.nuoveAziende} l="Nuove (le creo)" tone="blue" />
-              <Numero v={piano.scartate.length} l="Non abbinabili" tone={piano.scartate.length ? "red" : "neutral"} />
-            </div>
-          ) : (<>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(["R", "S", "C"] as StatoDomanda[]).map((s) => <Numero key={s} v={piano.conteggi.perStato[s]} l={s === "R" ? "Fatte" : STATI[s].label} tone={s === "R" ? "green" : s === "S" ? "blue" : "amber"} />)}
-              <Numero v={restanoDaFare} l="Restano da fare" tone="red" />
-            </div>
-            <div className="rounded-2xl ring-1 ring-ink-100 divide-y divide-ink-100 text-[14px]">
-              <RigaInfo l="Domande nuove (prima erano da fare)" v={piano.conteggi.nuove} />
-              <RigaInfo l="Domande che cambiano stato" v={piano.conteggi.aggiornate} />
-              <RigaInfo l="Già aggiornate" v={piano.conteggi.invariate} />
-              {piano.conflitti > 0 && <RigaInfo l="Aziende presenti in più file (vale lo stato più avanzato)" v={piano.conflitti} />}
-            </div>
-            {piano.conteggi.fuori > 0 && (
-              <div onClick={() => setAggiungiFuori((x) => !x)} className={clsx("flex items-center gap-4 rounded-2xl border-2 px-4 py-3.5 cursor-pointer transition-colors", aggiungiFuori ? "border-amber-300 bg-amber-50/60" : "border-ink-100")}>
-                <Toggle checked={aggiungiFuori} onChange={setAggiungiFuori} />
-                <div className="flex-1">
-                  <div className="font-bold text-[14.5px]">{piano.conteggi.fuori} aziende «fuori elenco»</div>
-                  <div className="text-[13px] text-ink-500">Hanno la domanda ma non erano nell'elenco da fare{piano.conteggi.nuoveAziende ? ` (${piano.conteggi.nuoveAziende} non sono in anagrafica)` : ""}. {aggiungiFuori ? "Le aggiungo alla pratica." : "Le ignoro."}</div>
-                </div>
-              </div>
-            )}
-            <FuoriElenco piano={piano} />
-          </>)}
-          {piano.scartate.length > 0 && <Scartate righe={piano.scartate} />}
+        <div className="rounded-2xl ring-1 ring-ink-100 divide-y divide-ink-100 text-[14px]">
+          {fa.nuovi.map((nf) => {
+            const st = fa.dopo.perFile.get(nf.id)!;
+            return <RigaInfo key={nf.id} l={`«${nf.nome}»: righe trovate nell'elenco`} v={st.abbinate} />;
+          })}
+          <RigaInfo l="Righe dell'elenco che cambiano stato" v={fa.cambiano} />
+          {fa.fuoriNuovi.length > 0 && <RigaInfo l="Nominativi fuori elenco (non sono tra le domande da fare)" v={fa.fuoriNuovi.length} />}
         </div>
-      ) : null,
-    },
-  ];
+        {!vociPratica.length && <p className="text-[13px] text-amber-800 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" />Non c'è ancora l'elenco delle domande da fare: i file vengono salvati e il riscontro si farà quando lo carichi.</p>}
+        <FuoriElenco fuori={fa.fuoriNuovi} />
+      </div>
+    ) : null),
+  };
+
+  const steps: WizardStep[] = fatto ? [{
+    key: "fatto", title: "Fatto", question: isModello ? "Elenco delle domande da fare salvato" : "File caricati, riscontro aggiornato",
+    hint: isModello ? "Ora carica i file delle domande fatte, stampate o in compilazione: faccio il riscontro." : "Ogni riga dell'elenco ha il suo pallino. Puoi eliminare un file in qualsiasi momento: il riscontro si ricalcola.",
+    content: (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {isModello && m ? <Numero v={modo === "integra" && precedente ? m.nuoviDaIntegrare.length : m.unici.length} l={modo === "integra" && precedente ? "Nominativi aggiunti" : "Nominativi nell'elenco"} tone="green" />
+          : fa && (["R", "S", "C", "N"] as const).map((s) => <Numero key={s} v={fa.dopo.conteggi[s]} l={NOME_STATO[s]} tone={s === "R" ? "green" : s === "S" ? "blue" : s === "C" ? "amber" : "red"} />)}
+      </div>
+    ),
+  }] : lavoro ? [{ key: "lavoro", title: "Salvataggio", question: "Salvataggio in corso…", canNext: false, content: <Avanzamento msg={lavoro} p={0.6} /> }] : [fileStep, colonneStep, riepilogoStep];
 
   return (
     <Wizard
@@ -226,10 +262,10 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
       steps={steps}
       index={fatto || lavoro ? 0 : step}
       setIndex={setStep}
-      title={`${pratica.nome} · ${titoloModello ? "domande da fare" : "domande fatte"}`}
+      title={`${pratica.nome} · ${isModello ? "domande da fare" : "domande fatte"}`}
       icon={<FileSpreadsheet size={20} />}
       onFinish={fatto ? onClose : esegui}
-      finishLabel={fatto ? "Chiudi" : titoloModello ? "Salva l'elenco" : "Aggiorna gli stati"}
+      finishLabel={fatto ? "Chiudi" : isModello ? (precedente && modo === "integra" ? "Aggiungi all'elenco" : "Salva l'elenco") : "Salva e fai il riscontro"}
     />
   );
 }
@@ -299,39 +335,21 @@ function RigaInfo({ l, v }: { l: string; v: number }) {
   return <div className="flex items-center justify-between px-4 py-2.5"><span className="text-ink-600">{l}</span><span className="font-bold tabular-nums">{v}</span></div>;
 }
 
-function FuoriElenco({ piano }: { piano: Piano }) {
-  const { azById } = useUfficio();
+function FuoriElenco({ fuori }: { fuori: Fonte[] }) {
   const [aperto, setAperto] = useState(false);
-  const fuori = piano.voci.filter((v) => v.fuori);
   if (!fuori.length) return null;
   return (
     <div>
       <button onClick={() => setAperto((x) => !x)} className="text-[13px] font-semibold text-ink-600 flex items-center gap-1.5 hover:text-ink-900">
-        <ChevronDown size={15} className={clsx("transition-transform", aperto && "rotate-180")} />Vedi le aziende fuori elenco
+        <ChevronDown size={15} className={clsx("transition-transform", aperto && "rotate-180")} />Vedi i nominativi fuori elenco
       </button>
       <AnimatePresence>
         {aperto && (
-          <motion.ul initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 max-h-48 overflow-y-auto rounded-2xl bg-ink-50 p-3 text-[13px] space-y-0.5 overflow-hidden">
-            {fuori.map((v) => <li key={v.chiave}>{v.esame.tipo === "azienda" ? titleCase(azById.get(v.esame.aziendaId)?.denominazione ?? "") : <>{titleCase(v.esame.denominazione)} <span className="text-blue-600 font-semibold">nuova</span></>} <span className="text-ink-400">· {STATI[v.stato].label}</span></li>)}
+          <motion.ul initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 max-h-48 overflow-y-auto rounded-2xl bg-ink-50 p-3 text-[13px] space-y-0.5">
+            {fuori.map((x, i) => <li key={i}>{titleCase(x.riga.denominazione ?? "") || "—"} <span className="font-mono text-ink-400">{x.riga.cuaa ?? ""}</span> <span className="text-ink-400">· {NOME_STATO[x.stato]}</span></li>)}
           </motion.ul>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function Scartate({ righe }: { righe: { file: string; riga: number; nome: string; motivo: string }[] }) {
-  const [aperto, setAperto] = useState(false);
-  return (
-    <div className="rounded-2xl bg-amber-50/70 ring-1 ring-amber-100 p-4">
-      <button onClick={() => setAperto((x) => !x)} className="w-full flex items-center gap-2 font-semibold text-amber-800 text-sm text-left">
-        <AlertTriangle size={16} />{righe.length} righe non abbinate<ChevronDown size={15} className={clsx("ml-auto transition-transform", aperto && "rotate-180")} />
-      </button>
-      {aperto && (
-        <ul className="mt-2 max-h-44 overflow-y-auto text-[13px] text-amber-900 space-y-0.5">
-          {righe.slice(0, 300).map((r, i) => <li key={i}><span className="text-amber-700/70">{r.file} · riga {r.riga}:</span> <b>{r.nome}</b> — {r.motivo}</li>)}
-        </ul>
-      )}
     </div>
   );
 }

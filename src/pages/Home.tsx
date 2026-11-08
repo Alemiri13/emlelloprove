@@ -8,19 +8,19 @@ import { useModals, useUfficio } from "../lib/ufficio";
 import { calcolaAttivita } from "../lib/domain";
 
 export function HomePage() {
-  const { ufficio, aziende, domande, pratiche, abbinamenti, colture } = useUfficio();
+  const { ufficio, aziende, pratiche, riscontri, colture } = useUfficio();
   const { profilo } = useAuth();
   const { nuovaAzienda, nuovaDomanda } = useModals();
   const nav = useNavigate();
   const [smart, setSmart] = useState(false);
-  const urgenti = useMemo(() => calcolaAttivita(aziende, pratiche, abbinamenti, domande).filter((a) => a.urgente).length, [aziende, pratiche, abbinamenti, domande]);
+  const urgenti = useMemo(() => calcolaAttivita(pratiche, riscontri).filter((a) => a.urgente).length, [pratiche, riscontri]);
 
   const tiles = [
     { to: "anagrafica", icon: Users, title: "Anagrafica", desc: "Aziende, contatti, terreni e documenti", meta: `${aziende.length} aziende`, big: true },
     { to: "domande", icon: ClipboardList, title: "Domande", desc: "Fatte, in corso e da fare per ogni pratica", meta: `${pratiche.filter((p) => p.attivo).length} pratiche attive`, big: true },
     { to: "colture", icon: Sprout, title: "Colture", desc: "Cosa si coltiva e dove", meta: `${colture.length} colture` },
     { to: "da-fare", icon: ListChecks, title: "Da fare", desc: "Le attività che richiedono attenzione", meta: urgenti ? `${urgenti} urgenti` : "Tutto in ordine", alert: urgenti > 0 },
-    { to: "pratiche", icon: FileStack, title: "Pratiche e bandi", desc: "Scadenze, requisiti e quote", meta: "Comuni a tutti gli uffici" },
+    { to: "pratiche", icon: FileStack, title: "Pratiche e bandi", desc: "Elenchi da fare e riscontro delle fatte", meta: "Comuni a tutti gli uffici" },
   ];
 
   return (

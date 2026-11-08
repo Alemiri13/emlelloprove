@@ -1,15 +1,15 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Sparkles, Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight, Ban, Link2,
+  Sparkles, Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { eta } from "../lib/cf";
-import { eur, fileSize, fmtDate, fmtDateLong, fmtDateTime, ha, litri, relDays, daysFromToday, titleCase } from "../lib/format";
-import { abbinate, CATEGORIE_DOC, KIT, statoDocumento } from "../lib/domain";
+import { eur, fileSize, fmtDate, fmtDateLong, fmtDateTime, ha, relDays, daysFromToday, titleCase } from "../lib/format";
+import { CATEGORIE_DOC, KIT, statoDocumento } from "../lib/domain";
 import {
-  apriDocumento, useAbbina, useEliminaDocumenti, useDocumenti, useEliminaAzienda, useEliminaDocumento, useRimuoviColturaAzienda, useSalvaAzienda, useSalvaColturaAzienda, useStorico, type AziendaInput,
+  apriDocumento, useEliminaDocumenti, useDocumenti, useEliminaAzienda, useEliminaDocumento, useRimuoviColturaAzienda, useSalvaAzienda, useSalvaColturaAzienda, useStorico, type AziendaInput,
 } from "../lib/queries";
 import { Modal } from "../components/ui/Modal";
 import { Avatar, Badge, Empty, EsitoPill, InfoRow, SectionTitle, StatoPill, Tabs } from "../components/ui/Misc";
@@ -24,6 +24,7 @@ import { CaricamentoIntelligente } from "./CaricamentoIntelligente";
 import { DocumentoPreview } from "./DocumentoPreview";
 import { SelezionaTutti, useSelezione } from "../components/ui/Bulk";
 import type { Azienda, Documento } from "../lib/types";
+import { chiaveCuaa } from "../lib/riscontro";
 
 type Tab = "scheda" | "colture" | "domande" | "documenti" | "storico";
 
@@ -310,22 +311,20 @@ function SupField({ value, onSave }: { value: number | null; onSave: (v: number 
 }
 
 function DomandeTab({ a }: { a: Azienda }) {
-  const { pratiche, abbinamenti, domande, domandaByKey } = useUfficio();
-  const { apriDomanda } = useModals();
-  const abb = useAbbina();
-  const { toast } = useFeedback();
-  const rows = useMemo(() => pratiche.filter((p) => p.attivo).map((p) => {
-    const m = abbinate([a], p, abbinamenti, domande).get(a.id);
-    const escl = abbinamenti.some((x) => x.pratica_id === p.id && x.azienda_id === a.id && x.tipo === "escluso");
-    return { p, motivo: m, escluso: escl, d: domandaByKey.get(a.id + "|" + p.id) };
-  }), [a, pratiche, abbinamenti, domande, domandaByKey]);
+  const { pratiche, riscontri } = useUfficio();
+  const { apriVoce } = useModals();
+  const rows = useMemo(() => {
+    const c = chiaveCuaa(a.cuaa);
+    return pratiche.flatMap((p) => (riscontri.get(p.id)?.voci ?? []).filter((v) => c && chiaveCuaa(v.voce.cuaa) === c).map((v) => ({ p, v })));
+  }, [a, pratiche, riscontri]);
 
+  if (!rows.length) return <div className="card"><Empty icon={<ClipboardList size={26} />} title="Non compare in nessun elenco" desc="Le domande si gestiscono da Pratiche e bandi: l'azienda compare qui quando il suo CUAA è nell'elenco delle domande da fare di una pratica." /></div>;
   return (
     <div className="space-y-3">
-      {rows.map(({ p, motivo, escluso, d }) => {
+      {rows.map(({ p, v }) => {
         const giorni = daysFromToday(p.scadenza);
         return (
-          <div key={p.id} className={clsx("card p-5 flex items-center gap-4 transition", !motivo && "opacity-70")}>
+          <div key={v.voce.id} className="card p-5 flex items-center gap-4">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-bold text-[15.5px] tracking-tight">{p.nome}</span>
@@ -333,24 +332,14 @@ function DomandeTab({ a }: { a: Azienda }) {
               </div>
               <div className="text-[13px] text-ink-500 mt-1 flex gap-3 flex-wrap">
                 {p.scadenza && <span className={clsx(giorni != null && giorni >= 0 && giorni <= 15 && "text-red-600 font-semibold")}>Scadenza {fmtDate(p.scadenza)}{giorni != null && giorni >= 0 ? ` · ${relDays(giorni)}` : ""}</span>}
-                {d?.numero && <span>N. {d.numero}</span>}
-                {d && p.unita === "litri" && d.litri_assegnati != null && <span>{litri(d.litri_assegnati)}</span>}
-                {!motivo && <span>{escluso ? "Esclusa manualmente" : "Non rientra nei requisiti"}</span>}
-                {motivo === "incluso" && !d && <span>Aggiunta manualmente</span>}
+                {v.numero && <span>N. {v.numero}</span>}
+                {v.fonte && !v.manuale && <span>da «{v.fonte.file.nome}»</span>}
+                {v.manuale && <span>stato a mano</span>}
               </div>
             </div>
-            {motivo ? (
-              <>
-                {d?.stato === "R" && <EsitoPill esito={d.esito} />}
-                <StatoPill stato={d?.stato ?? "N"} />
-                {motivo === "criteri" && !d && (
-                  <button title="Escludi da questa pratica" onClick={async () => { await abb.mutateAsync({ pratica_id: p.id, aziende: [a.id], tipo: "escluso" }); toast("info", "Esclusa dalla pratica"); }} className="h-10 w-10 grid place-items-center rounded-xl text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"><Ban size={17} /></button>
-                )}
-                <Button variant="soft" size="sm" iconRight={<ChevronRight size={16} />} onClick={() => apriDomanda(a.id, p.id)}>{d ? "Apri" : "Avvia"}</Button>
-              </>
-            ) : (
-              <Button variant="secondary" size="sm" icon={<Link2 size={15} />} onClick={async () => { await abb.mutateAsync({ pratica_id: p.id, aziende: [a.id], tipo: "incluso" }); toast("success", "Azienda abbinata alla pratica"); }}>Abbina</Button>
-            )}
+            {v.stato === "R" && v.esito && <EsitoPill esito={v.esito} />}
+            <StatoPill stato={v.stato} />
+            <Button variant="soft" size="sm" iconRight={<ChevronRight size={16} />} onClick={() => apriVoce(v.voce.id)}>Apri</Button>
           </div>
         );
       })}

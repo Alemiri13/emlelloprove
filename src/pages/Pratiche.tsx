@@ -8,7 +8,7 @@ import { Scale, BadgeCheck, CalendarClock, Check, FileStack, FileSpreadsheet, Le
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
-import { abbinate, descriviCriteri } from "../lib/domain";
+import { descriviCriteri } from "../lib/domain";
 import { daysFromToday, fmtDate, normalizeSearch, relDays } from "../lib/format";
 import { useAttivaPratiche, useEliminaPratica, useEliminaPratiche, useSalvaPratica } from "../lib/queries";
 import { Button } from "../components/ui/Button";
@@ -23,7 +23,7 @@ import { PageHeader } from "./Anagrafica";
 import type { Criteri, Pratica, StatoDomanda } from "../lib/types";
 
 export function PratichePage() {
-  const { pratiche, aziende, abbinamenti, domande, domandaByKey, colturaById, ufficio } = useUfficio();
+  const { pratiche, riscontri, colturaById, ufficio } = useUfficio();
   const [edit, setEdit] = useState<Pratica | "new" | null>(null);
   const [confronto, setConfronto] = useState<Pratica | "nuovo" | null>(null);
   const nav = useNavigate();
@@ -38,11 +38,10 @@ export function PratichePage() {
   const { toast, confirm } = useFeedback();
 
   const righe = useMemo(() => pratiche.map((p) => {
-    const ab = abbinate(aziende, p, abbinamenti, domande);
-    const counts: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
-    for (const id of ab.keys()) counts[domandaByKey.get(id + "|" + p.id)?.stato ?? "N"]++;
-    return { p, ab, counts, g: daysFromToday(p.scadenza) };
-  }), [pratiche, aziende, abbinamenti, domande, domandaByKey]);
+    const r = riscontri.get(p.id);
+    const counts: Record<StatoDomanda, number> = r?.conteggi ?? { N: 0, C: 0, S: 0, R: 0 };
+    return { p, tot: r?.voci.length ?? 0, counts, g: daysFromToday(p.scadenza) };
+  }), [pratiche, riscontri]);
 
   const filtrate = useMemo(() => {
     const n = normalizeSearch(q.trim());
@@ -63,8 +62,8 @@ export function PratichePage() {
 
   const esporta = (ids?: string[]) => {
     const l = ids ? righe.filter((r) => ids.includes(r.p.id)) : filtrate;
-    esportaExcel(`pratiche_${ufficio.id}`, ["Pratica", "Codice", "Tipo", "Ente", "Scadenza", "Attiva", "Elenco da fare", "Aziende", "Fatte", "Stampate", "In compilazione", "Da fare"],
-      l.map(({ p, ab, counts }) => [p.nome, p.codice, p.categoria === "bando" ? "Bando" : "Annuale", p.ente, p.scadenza ? fmtDate(p.scadenza) : "", p.attivo ? "SI" : "NO", p.modello ? "Caricato" : "No", ab.size, counts.R, counts.S, counts.C, counts.N]));
+    esportaExcel(`pratiche_${ufficio.id}`, ["Pratica", "Codice", "Tipo", "Ente", "Scadenza", "Attiva", "Elenco da fare", "Nominativi", "Fatte", "Stampate", "In compilazione", "Non fatte"],
+      l.map(({ p, tot, counts }) => [p.nome, p.codice, p.categoria === "bando" ? "Bando" : "Annuale", p.ente, p.scadenza ? fmtDate(p.scadenza) : "", p.attivo ? "SI" : "NO", p.modello ? "Caricato" : "No", tot, counts.R, counts.S, counts.C, counts.N]));
   };
   const eliminaSel = async () => {
     const n = selezione.n;
@@ -104,7 +103,7 @@ export function PratichePage() {
       </div>
       {filtrate.length === 0 && <div className="card"><Empty icon={<FileStack size={26} />} title="Nessuna pratica" desc={pratiche.length ? "Cambia la ricerca o il filtro." : "Crea la prima pratica."} /></div>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filtrate.map(({ p, ab, counts, g }, i) => {
+        {filtrate.map(({ p, tot, counts, g }, i) => {
           const scelta = selezione.sel.has(p.id);
           return (
             <motion.div
@@ -136,17 +135,17 @@ export function PratichePage() {
               <div className="grid grid-cols-3 gap-3 mt-5">
                 <Stat icon={<CalendarClock size={14} />} label="Scadenza" value={p.scadenza ? fmtDate(p.scadenza) : "—"} sub={g != null ? (g < 0 ? "Chiusa" : relDays(g)) : undefined} alert={g != null && g >= 0 && g <= 15} />
                 <Stat icon={<FileSpreadsheet size={14} />} label="Elenco da fare" value={p.modello ? "Caricato" : "Da caricare"} alert={!p.modello} />
-                <Stat icon={<Check size={14} />} label="Fatte" value={ab.size ? `${counts.R} su ${ab.size}` : "—"} sub={ab.size ? `${Math.round((counts.R / ab.size) * 100)}%` : undefined} />
+                <Stat icon={<Check size={14} />} label="Fatte" value={tot ? `${counts.R} su ${tot}` : "—"} sub={tot ? `${Math.round((counts.R / tot) * 100)}%` : undefined} />
               </div>
               <div className="flex flex-wrap gap-1.5 mt-4">
                 {descriviCriteri(p, nomiColture).map((c) => <span key={c} className="chip bg-ink-50 text-ink-600">{c}</span>)}
               </div>
               <div className="mt-auto pt-5">
                 <div className="flex justify-between text-[12.5px] text-ink-500 mb-1.5">
-                  <span>{ufficio.nome}: {ab.size} aziende abbinate</span>
-                  <span className="font-semibold text-ink-700">{counts.R} rilasciate</span>
+                  <span>{ufficio.nome}: {tot} nominativi nell'elenco</span>
+                  <span className="font-semibold text-ink-700">{counts.R} fatte · {counts.S} stampate · {counts.C} in compilazione</span>
                 </div>
-                <ProgressStati counts={counts} total={ab.size} height={7} />
+                <ProgressStati counts={counts} total={tot} height={7} />
                 <div className="mt-4 flex gap-2">
                   <Button variant="soft" size="sm" className="flex-1" icon={<FileSpreadsheet size={15} />} onClick={(e) => { e.stopPropagation(); nav(p.id); }}>{p.modello ? "Apri e carica le fatte" : "Carica l'elenco da fare"}</Button>
                   <Button variant="secondary" size="sm" icon={<Scale size={15} />} onClick={(e) => { e.stopPropagation(); setConfronto(p); }}>Requisiti</Button>

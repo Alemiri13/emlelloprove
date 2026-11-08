@@ -1,44 +1,37 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, CalendarClock, Check, ChevronRight, ClipboardList, Download, FileSpreadsheet, History, ListChecks, Lock, Pencil, RefreshCw, Scale, Send, Trash2, Upload, UserMinus } from "lucide-react";
-import { BarraAzioni, SelezionaTutti, useSelezione } from "../components/ui/Bulk";
-import { esportaExcel } from "../lib/esporta";
-import { useEliminaCaricamenti, useStatoMultiplo, useTogliDaPratica } from "../lib/queries";
-import { useFeedback } from "../components/ui/Feedback";
-import { Select } from "../components/ui/Select";
-import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { ArrowLeft, CalendarClock, Check, Download, FileSpreadsheet, ListChecks, ListPlus, Lock, Pencil, Replace, Scale, Trash2, Upload, UserRoundX } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
-import { useModals, useUfficio } from "../lib/ufficio";
-import { abbinate, ORDINE_STATI, STATI } from "../lib/domain";
-import { daysFromToday, fmtDate, fmtDateTime, normalizeSearch, relDays, titleCase } from "../lib/format";
+import { SelezionaTutti, useSelezione } from "../components/ui/Bulk";
+import { useFeedback } from "../components/ui/Feedback";
 import { Button } from "../components/ui/Button";
-import { Checkbox, SearchInput } from "../components/ui/Inputs";
-import { Avatar, Badge, Empty, ProgressStati, StatoPill } from "../components/ui/Misc";
+import { Checkbox } from "../components/ui/Inputs";
+import { Badge } from "../components/ui/Misc";
+import { useAggiungiVoci, useEliminaFileElenco, scaricaFileElenco } from "../lib/queries";
+import { useUfficio } from "../lib/ufficio";
+import { STATI } from "../lib/domain";
+import { daysFromToday, fmtDate, fmtDateTime, relDays, titleCase } from "../lib/format";
 import { CaricaElenco } from "../features/pratica/CaricaElenco";
+import { ElencoVoci, NOME_STATO } from "../features/pratica/ElencoVoci";
 import { ConfrontoBando } from "../features/ConfrontoBando";
 import { PraticaEditor } from "./Pratiche";
-import type { StatoDomanda } from "../lib/types";
-
-type Filtro = "tutte" | StatoDomanda;
+import { chiaveCuaa, chiaveNome } from "../lib/riscontro";
+import type { PraticaFile, StatoDomanda } from "../lib/types";
 
 export function PraticaDettaglioPage() {
   const { id } = useParams();
   const loc = useLocation();
-  const { pratiche, aziende, abbinamenti, domande, domandaByKey, caricamenti, ufficio, loading } = useUfficio();
-  const { apriDomanda } = useModals();
+  const { pratiche, praticaFile, voci, riscontri, ufficio, loading } = useUfficio();
   const nav = useNavigate();
   const p = pratiche.find((x) => x.id === id);
   const [carica, setCarica] = useState<"modello" | "fatte" | null>(null);
   const [edit, setEdit] = useState(false);
   const [confronto, setConfronto] = useState(false);
-  const [filtro, setFiltro] = useState<Filtro>("tutte");
-  const [q, setQ] = useState("");
-  const [limit, setLimit] = useState(100);
-  const selezione = useSelezione(id);
-  const selCar = useSelezione(id);
-  const statoMulti = useStatoMultiplo();
-  const togli = useTogliDaPratica();
-  const elCar = useEliminaCaricamenti();
+  const selFile = useSelezione(id);
+  const selFuori = useSelezione(id);
+  const elimina = useEliminaFileElenco();
+  const aggiungi = useAggiungiVoci();
   const { toast, confirm } = useFeedback();
 
   // arrivo da «Nuova domanda»: si apre subito il caricamento dell'elenco
@@ -47,66 +40,42 @@ export function PraticaDettaglioPage() {
   useEffect(() => { if (daAprire && p && !p.modello) setCarica("modello"); }, [daAprire, p?.id, p?.modello]); // eslint-disable-line react-hooks/exhaustive-deps
   const chiudiCaricamento = () => { setCarica(null); if (daAprire) nav(loc.pathname, { replace: true, state: null }); };
 
-  const miei = useMemo(() => caricamenti.filter((c) => c.pratica_id === id), [caricamenti, id]);
-  const modello = miei.filter((c) => c.tipo === "modello");
-  const fatte = miei.filter((c) => c.tipo === "fatte");
-
-  const righe = useMemo(() => {
-    if (!p) return [];
-    const ab = abbinate(aziende, p, abbinamenti, domande);
-    return aziende.filter((a) => ab.has(a.id)).map((a) => ({ a, d: domandaByKey.get(a.id + "|" + p.id) }));
-  }, [p, aziende, abbinamenti, domande, domandaByKey]);
-
-  const counts = useMemo(() => {
-    const c: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
-    righe.forEach(({ d }) => c[d?.stato ?? "N"]++);
-    return c;
-  }, [righe]);
-
-  const lista = useMemo(() => {
-    const n = normalizeSearch(q.trim());
-    return righe.filter(({ a, d }) => (filtro === "tutte" || (d?.stato ?? "N") === filtro) && (!n || normalizeSearch(`${a.denominazione} ${a.cuaa} ${d?.numero ?? ""}`).includes(n)))
-      .sort((x, y) => ORDINE_STATI.indexOf(x.d?.stato ?? "N") - ORDINE_STATI.indexOf(y.d?.stato ?? "N") || x.a.denominazione.localeCompare(y.a.denominazione, "it"));
-  }, [righe, filtro, q]);
+  const miei = useMemo(() => praticaFile.filter((f) => f.pratica_id === id), [praticaFile, id]);
+  const modello = miei.find((f) => f.tipo === "modello");
+  const fatte = useMemo(() => miei.filter((f) => f.tipo === "fatte").sort((a, b) => b.created_at.localeCompare(a.created_at)), [miei]);
+  const nVoci = useMemo(() => voci.filter((v) => v.pratica_id === id).length, [voci, id]);
+  const r = id ? riscontri.get(id) : undefined;
+  const fuori = r?.fuori ?? [];
+  const chiaveFonte = (i: number) => String(i);
 
   if (!p) return loading ? null : <Navigate to={`/u/${ufficio.id}/pratiche`} replace />;
 
-  const cambiaStato = async (st: StatoDomanda) => {
-    const ids = selezione.ids;
-    if (st === "N" && !(await confirm({ title: `Riportare ${ids.length} aziende a «da fare»?`, message: "Le loro domande vengono eliminate (numero, date, esito).", danger: true, confirmLabel: "Conferma" }))) return;
-    await statoMulti.mutateAsync({ pratica_id: p.id, aziende: ids, stato: st });
-    toast("success", `${ids.length} domande aggiornate`, STATI[st].label); selezione.svuota();
+  const eliminaFile = async (files: PraticaFile[]) => {
+    const conModello = files.some((f) => f.tipo === "modello");
+    const ok = await confirm({
+      title: files.length === 1 ? `Eliminare «${files[0].nome}»?` : `Eliminare ${files.length} file?`,
+      message: conModello
+        ? `Elimini l'elenco delle domande da fare: si tolgono anche le ${nVoci} righe dell'elenco con gli stati messi a mano. I file delle domande fatte restano.`
+        : "Il riscontro si ricalcola senza questi file. L'elenco delle domande da fare non cambia.",
+      danger: true, confirmLabel: "Elimina",
+    });
+    if (!ok) return;
+    await elimina.mutateAsync(files);
+    toast("success", files.length === 1 ? "File eliminato" : `${files.length} file eliminati`); selFile.svuota();
   };
-  const togliSel = async (escludi: boolean) => {
-    const ids = selezione.ids;
-    if (!(await confirm({ title: `Togliere ${ids.length} aziende dalla pratica?`, message: escludi ? "Vengono eliminate le loro domande ed escluse dalla pratica (non rientrano neppure con i requisiti automatici)." : "Vengono eliminate le loro domande e tolte dall'elenco delle domande da fare.", danger: true, confirmLabel: "Togli" }))) return;
-    await togli.mutateAsync({ pratica_id: p.id, aziende: ids, escludi });
-    toast("success", `${ids.length} aziende tolte dalla pratica`); selezione.svuota();
-  };
-  const esporta = (ids?: string[]) => {
-    const l = ids ? righe.filter((r) => ids.includes(r.a.id)) : lista;
-    esportaExcel(`${p.codice ?? p.id}_${ufficio.id}`, ["CUAA", "Denominazione", "Stato", "N. domanda", "Data presentazione", "Esito", "Litri assegnati", "Note"],
-      l.map(({ a, d }) => [a.cuaa, a.denominazione, STATI[d?.stato ?? "N"].label, d?.numero, d?.data_presentazione ? fmtDate(d.data_presentazione) : "", d?.stato === "R" ? { I: "In istruttoria", A: "Ammessa", P: "Ammessa in parte", X: "Non ammessa" }[d.esito] : "", d?.litri_assegnati, d?.note]));
-  };
-  const eliminaCaricamenti = async (ids: string[]) => {
-    const conModello = miei.filter((c) => ids.includes(c.id) && c.tipo === "modello");
-    const restaModello = miei.some((c) => c.tipo === "modello" && !ids.includes(c.id));
-    const svuota = conModello.length > 0 && !restaModello;
-    if (!(await confirm({ title: `Eliminare ${ids.length} ${ids.length === 1 ? "caricamento" : "caricamenti"} dallo storico?`,
-      message: svuota ? "Elimini anche l'elenco delle domande da fare: le aziende escono dall'elenco (le domande già registrate restano) e la pratica torna ai requisiti automatici." : "Gli stati delle domande non cambiano: si toglie solo la voce dallo storico.",
-      danger: true, confirmLabel: "Elimina" }))) return;
-    const membri = abbinamenti.filter((x) => x.pratica_id === p.id && x.tipo === "incluso").map((x) => x.azienda_id).filter((az) => aziende.some((a) => a.id === az));
-    await elCar.mutateAsync({ ids, svuotaElenco: svuota ? { pratica_id: p.id, aziende: membri } : undefined });
-    toast("success", "Storico aggiornato"); selCar.svuota();
+  const scarica = async (f: PraticaFile) => { try { await scaricaFileElenco(f); } catch (e) { toast("error", "Download non riuscito", (e as Error).message); } };
+  const aggiungiFuori = async (idx: string[]) => {
+    const scelte = idx.map((i) => fuori[Number(i)]).filter(Boolean);
+    const base = nVoci;
+    await aggiungi.mutateAsync(scelte.map((x, i) => ({ pratica_id: p.id, ufficio_id: ufficio.id, file_id: modello?.id ?? null, cuaa: x.riga.cuaa, denominazione: x.riga.denominazione, ordine: base + i })));
+    toast("success", `${scelte.length} nominativi aggiunti all'elenco`); selFuori.svuota();
   };
   const g = daysFromToday(p.scadenza);
-  const tot = righe.length;
 
   return (
     <div>
       <button onClick={() => nav(`/u/${ufficio.id}/pratiche`)} className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink-500 hover:text-ink-900 mb-5"><ArrowLeft size={16} /> Pratiche e bandi</button>
 
-      {/* intestazione */}
       <div className="flex flex-col lg:flex-row lg:items-end gap-4 mb-7">
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -124,135 +93,103 @@ export function PraticaDettaglioPage() {
         </div>
       </div>
 
-      {/* i due caricamenti */}
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Passo
-          n={1} titolo="Elenco delle domande da fare" fatto={!!p.modello}
-          desc={p.modello ? "Il modello della pratica: le aziende che devono fare questa domanda." : "Carica l'Excel con le aziende che devono fare questa domanda. Si fa una volta sola."}
-          info={modello[0] && <>Caricato il {fmtDateTime(modello[modello.length - 1].created_at)}{modello[modello.length - 1].created_by ? ` da ${modello[modello.length - 1].created_by}` : ""} · {tot} aziende</>}
-          azione={p.modello
-            ? <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={() => setCarica("modello")}>Aggiungi aziende all'elenco</Button>
-            : <Button size="lg" icon={<Upload size={18} />} onClick={() => setCarica("modello")}>Carica l'elenco da fare</Button>}
-        />
-        <Passo
-          n={2} titolo="Domande fatte" fatto={fatte.length > 0} bloccato={!p.modello}
-          desc={!p.modello ? "Prima carica l'elenco delle domande da fare." : "Carica l'Excel delle domande fatte: lo confronto con l'elenco e metto il pallino a ogni azienda. Puoi ricaricarlo ogni volta che si aggiorna."}
-          info={fatte[0] && <>Ultimo caricamento il {fmtDateTime(fatte[0].created_at)} · {fatte.length} {fatte.length === 1 ? "caricamento" : "caricamenti"}</>}
-          azione={<Button size="lg" variant={fatte.length ? "secondary" : "primary"} disabled={!p.modello} icon={<Upload size={18} />} onClick={() => setCarica("fatte")}>{fatte.length ? "Carica un elenco aggiornato" : "Carica le domande fatte"}</Button>}
-        />
-      </div>
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
+        {/* 1 · elenco delle domande da fare */}
+        <Passo n={1} titolo="Elenco delle domande da fare" fatto={!!modello}
+          desc={modello ? "Il modello della pratica: chi deve fare questa domanda. Puoi modificarlo riga per riga, sostituirlo o eliminarlo." : "Carica l'Excel con i nominativi che devono fare questa domanda. L'anagrafica non viene toccata."}>
+          {modello ? (
+            <>
+              <SchedaFile f={modello} sotto={<>{nVoci} nominativi nell'elenco · caricato il {fmtDateTime(modello.created_at)}{modello.created_by ? ` da ${modello.created_by}` : ""}</>}
+                azioni={<>
+                  <IconBtn title="Scarica il file originale" onClick={() => scarica(modello)} disabled={!modello.storage_path}><Download size={16} /></IconBtn>
+                  <IconBtn title="Elimina l'elenco" danger onClick={() => eliminaFile([modello])}><Trash2 size={16} /></IconBtn>
+                </>} />
+              <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                <Button variant="ghost" size="sm" icon={<Pencil size={14} />} onClick={() => document.getElementById("elenco")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Modifica le righe</Button>
+                <Button variant="secondary" size="sm" icon={<Replace size={14} />} onClick={() => setCarica("modello")}>Sostituisci o integra</Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-end"><Button size="lg" icon={<Upload size={18} />} onClick={() => setCarica("modello")}>Carica l'elenco da fare</Button></div>
+          )}
+        </Passo>
 
-      {/* stato */}
-      <div className="mt-6 card p-6">
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
-          <div className="flex-1">
-            <div className="text-[13px] text-ink-500 font-medium">{p.modello ? "Aziende dell'elenco" : "Aziende abbinate dai requisiti (elenco non ancora caricato)"}</div>
-            <div className="text-[28px] font-extrabold tabular-nums tracking-tight">{tot ? Math.round((counts.R / tot) * 100) : 0}% <span className="text-base font-semibold text-ink-400">fatte · {counts.R} su {tot}</span></div>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {(["R", "S", "C", "N"] as StatoDomanda[]).map((s) => (
-              <button key={s} onClick={() => setFiltro(filtro === s ? "tutte" : s)}
-                className={clsx("rounded-2xl px-3 py-2.5 text-left border-2 transition-all min-w-[86px] active:scale-[.97]", filtro === s ? "" : "border-transparent bg-ink-50 hover:bg-ink-100")}
-                style={filtro === s ? { borderColor: STATI[s].color, background: STATI[s].color + "0F" } : undefined}>
-                <div className="flex items-center gap-1.5 text-[11.5px] font-bold whitespace-nowrap" style={{ color: STATI[s].color }}><span className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[s].color }} />{s === "R" ? "Fatte" : s === "N" ? "Da fare" : STATI[s].label}</div>
-                <div className="text-[22px] font-extrabold tabular-nums leading-tight">{counts[s]}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-        <ProgressStati className="mt-5" counts={counts} total={tot} height={10} />
-        {counts.N > 0 && (
-          <button onClick={() => nav(`/u/${ufficio.id}/da-fare?pratica=${p.id}`)} className="mt-4 inline-flex items-center gap-2 text-[13.5px] font-semibold text-brand-800 hover:text-brand-950">
-            <ListChecks size={16} /> {counts.N} aziende in «Da fare» <ChevronRight size={15} />
-          </button>
-        )}
-      </div>
-
-      {/* elenco aziende con pallino */}
-      <div className="mt-5 flex flex-col sm:flex-row gap-3">
-        <SearchInput value={q} onChange={setQ} placeholder="Cerca azienda, CUAA o numero domanda…" className="flex-1" />
-        <Select value={filtro} onChange={setFiltro} className="sm:w-56" options={[
-          { value: "tutte", label: `Tutti gli stati (${tot})` },
-          ...(["R", "S", "C", "N"] as StatoDomanda[]).map((s) => ({ value: s, label: `${s === "R" ? "Fatte" : s === "N" ? "Da fare" : STATI[s].label} (${counts[s]})`, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[s].color }} /> })),
-        ]} />
-        {lista.length > 0 && <Button variant="secondary" icon={<Download size={16} />} onClick={() => esporta()}>Esporta</Button>}
-      </div>
-      <div className="mt-3 card overflow-hidden">
-        {tot === 0 ? (
-          <Empty icon={<ClipboardList size={26} />} title="Nessuna azienda nella pratica" desc="Carica l'elenco delle domande da fare per iniziare." action={<Button icon={<Upload size={17} />} onClick={() => setCarica("modello")}>Carica l'elenco da fare</Button>} />
-        ) : lista.length === 0 ? <Empty icon={<ClipboardList size={26} />} title="Nessuna azienda con questo filtro" /> : (
-          <div className="divide-y divide-ink-100">
-            <div className="px-5 h-11 flex items-center bg-ink-50/60">
-              <SelezionaTutti ids={lista.map((r) => r.a.id)} sel={selezione.sel} onChange={selezione.imposta} etichetta={<>{lista.length} aziende{selezione.n > 0 && <> · <b className="text-brand-800">{selezione.n} selezionate</b></>}</>} />
-            </div>
-            <AnimatePresence initial={false}>
-              {lista.slice(0, limit).map(({ a, d }, i) => {
-                const st = d?.stato ?? "N";
+        {/* 2 · file delle domande fatte */}
+        <Passo n={2} titolo="Domande fatte, stampate o in compilazione" fatto={fatte.length > 0} bloccato={!modello && !fatte.length}
+          desc={!modello && !fatte.length ? "Prima carica l'elenco delle domande da fare." : "Carica uno o più Excel: li confronto con l'elenco e metto il pallino a ogni riga. Elimina i file vecchi quando non servono più."}>
+          {fatte.length > 0 && (
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center gap-3 px-1 h-8">
+                <SelezionaTutti ids={fatte.map((f) => f.id)} sel={selFile.sel} onChange={selFile.imposta} etichetta={selFile.n ? `${selFile.n} selezionati` : `${fatte.length} file`} />
+                <div className="flex-1" />
+                {selFile.n > 0 && <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" icon={<Trash2 size={14} />} loading={elimina.isPending} onClick={() => eliminaFile(fatte.filter((f) => selFile.sel.has(f.id)))}>Elimina selezionati</Button>}
+              </div>
+              {fatte.map((f) => {
+                const st = r?.perFile.get(f.id);
                 return (
-                  <motion.div role="button" tabIndex={0} key={a.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: Math.min(i, 15) * 0.012 } }} exit={{ opacity: 0 }}
-                    onClick={() => apriDomanda(a.id, p.id)} className={clsx("group w-full flex items-center gap-4 px-5 py-3 text-left transition-colors", selezione.sel.has(a.id) ? "bg-brand-50/60" : "hover:bg-ink-50/80")}>
-                    <span onClick={(e) => e.stopPropagation()}><Checkbox checked={selezione.sel.has(a.id)} onChange={(v) => selezione.toggle(a.id, v)} /></span>
-                    <span className="relative h-3.5 w-3.5 shrink-0">
-                      <span className="absolute inset-0 rounded-full" style={{ background: STATI[st].color }} />
-                      {st === "N" && <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: STATI[st].color }} />}
-                    </span>
-                    <Avatar name={a.denominazione} size={36} square={a.tipo === "PG"} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block font-bold text-[14.5px] truncate group-hover:text-brand-900">{titleCase(a.denominazione)}</span>
-                      <span className="block text-[12px] font-mono text-ink-400">{a.cuaa}</span>
-                    </span>
-                    <span className="hidden md:block w-40 text-[12.5px] text-ink-500 truncate">{d?.numero ?? ""}{d?.data_presentazione ? ` · ${fmtDate(d.data_presentazione)}` : ""}</span>
-                    <StatoPill stato={st} />
-                    <ChevronRight size={17} className="text-ink-300 group-hover:text-brand-700" />
-                  </motion.div>
+                  <SchedaFile key={f.id} f={f} sel={selFile.sel.has(f.id)} onSel={(v) => selFile.toggle(f.id, v)}
+                    sotto={<>{f.n_righe} righe · {fmtDateTime(f.created_at)}{f.created_by ? ` · ${f.created_by}` : ""}</>}
+                    chips={st && <>
+                      {(["R", "S", "C"] as StatoDomanda[]).filter((s) => st.perStato[s]).map((s) => <span key={s} className="chip !h-6 !text-[11px]" style={{ background: STATI[s].color + "14", color: STATI[s].color }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: STATI[s].color }} />{st.perStato[s]} {NOME_STATO[s].toLowerCase()}</span>)}
+                      {st.fuori > 0 && <span className="chip !h-6 !text-[11px] bg-amber-50 text-amber-700">{st.fuori} fuori elenco</span>}
+                      {!f.colonne.stato && <span className="chip !h-6 !text-[11px] bg-ink-50 text-ink-500">tutte {NOME_STATO[f.stato_predefinito].toLowerCase()}</span>}
+                    </>}
+                    azioni={<>
+                      <IconBtn title="Scarica il file originale" onClick={() => scarica(f)} disabled={!f.storage_path}><Download size={16} /></IconBtn>
+                      <IconBtn title="Elimina il file" danger onClick={() => eliminaFile([f])}><Trash2 size={16} /></IconBtn>
+                    </>} />
                 );
               })}
-            </AnimatePresence>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button size={fatte.length ? "md" : "lg"} variant={fatte.length ? "secondary" : "primary"} disabled={!modello && !fatte.length} icon={<Upload size={fatte.length ? 16 : 18} />} onClick={() => setCarica("fatte")}>
+              {fatte.length ? "Carica altri file" : "Carica le domande fatte"}
+            </Button>
           </div>
-        )}
-        {lista.length > limit && <div className="p-4 flex justify-center border-t border-ink-100"><Button variant="secondary" onClick={() => setLimit((l) => l + 100)}>Mostra altre ({lista.length - limit})</Button></div>}
+        </Passo>
       </div>
 
-      {/* storico caricamenti */}
-      {miei.length > 0 && (
-        <div className="mt-6">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="text-[13px] font-bold uppercase tracking-[0.06em] text-ink-400 flex items-center gap-2"><History size={14} /> Caricamenti</div>
+      {/* riscontro */}
+      <div id="elenco" className="mt-6 scroll-mt-24">
+        {modello || nVoci ? (
+          <>
+            <ElencoVoci pratica={p} r={r} />
+            {r && r.conteggi.N > 0 && (
+              <button onClick={() => nav(`/u/${ufficio.id}/da-fare?pratica=${p.id}`)} className="mt-4 inline-flex items-center gap-2 text-[13.5px] font-semibold text-brand-800 hover:text-brand-950">
+                <ListChecks size={16} /> {r.conteggi.N} non fatte in «Da fare»
+              </button>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {/* fuori elenco */}
+      {fuori.length > 0 && (
+        <div className="mt-8">
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <div className="text-[13px] font-bold uppercase tracking-[0.06em] text-amber-700 flex items-center gap-2"><UserRoundX size={14} /> Fuori elenco · {fuori.length}</div>
+            <span className="text-[13px] text-ink-500">Nei file delle domande fatte ma non nell'elenco da fare.</span>
             <div className="flex-1" />
-            <SelezionaTutti ids={miei.map((c) => c.id)} sel={selCar.sel} onChange={selCar.imposta} etichetta={selCar.n ? `${selCar.n} selezionati` : "Seleziona tutti"} />
-            {selCar.n > 0 && <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" icon={<Trash2 size={14} />} loading={elCar.isPending} onClick={() => eliminaCaricamenti(selCar.ids)}>Elimina</Button>}
+            <SelezionaTutti ids={fuori.map((_, i) => chiaveFonte(i))} sel={selFuori.sel} onChange={selFuori.imposta} etichetta={selFuori.n ? `${selFuori.n} selezionati` : "Seleziona tutti"} />
+            {selFuori.n > 0 && <Button variant="soft" size="sm" icon={<ListPlus size={14} />} loading={aggiungi.isPending} onClick={() => aggiungiFuori(selFuori.ids)}>Aggiungi all'elenco</Button>}
           </div>
           <div className="card divide-y divide-ink-100">
-            {miei.map((c) => {
-              const r = c.riepilogo as Record<string, number | Record<string, number>>;
-              const ps = (r.perStato ?? {}) as Record<string, number>;
-              return (
-                <div key={c.id} className={clsx("flex items-center gap-4 px-5 py-3.5", selCar.sel.has(c.id) && "bg-brand-50/50")}>
-                  <Checkbox checked={selCar.sel.has(c.id)} onChange={(v) => selCar.toggle(c.id, v)} />
-                  <span className={clsx("h-10 w-10 rounded-xl grid place-items-center", c.tipo === "modello" ? "bg-brand-50 text-brand-800" : "bg-blue-50 text-blue-700")}><FileSpreadsheet size={18} /></span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[14px]">{c.tipo === "modello" ? "Elenco delle domande da fare" : "Domande fatte"} <span className="text-ink-400 font-normal">· {c.righe} righe</span></div>
-                    <div className="text-[12px] text-ink-500 truncate">{c.file_names.join(", ")} · {fmtDateTime(c.created_at)}{c.created_by ? ` · ${c.created_by}` : ""}</div>
-                  </div>
-                  <div className="hidden sm:flex gap-1.5">
-                    {c.tipo === "fatte" ? (["R", "S", "C"] as StatoDomanda[]).filter((s) => ps[s]).map((s) => <span key={s} className="chip !h-6 !text-[11px]" style={{ background: STATI[s].color + "14", color: STATI[s].color }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: STATI[s].color }} />{ps[s]}</span>)
-                      : <span className="chip !h-6 !text-[11px] bg-brand-50 text-brand-800"><Check size={11} />{Number(r.nuoveAziende ?? 0)} nuove aziende</span>}
-                  </div>
+            {fuori.slice(0, 300).map((x, i) => (
+              <div key={chiaveCuaa(x.riga.cuaa) + chiaveNome(x.riga.denominazione) + i} className={clsx("flex items-center gap-4 px-5 py-3", selFuori.sel.has(chiaveFonte(i)) && "bg-brand-50/50")}>
+                <Checkbox checked={selFuori.sel.has(chiaveFonte(i))} onChange={(v) => selFuori.toggle(chiaveFonte(i), v)} />
+                <span className="h-3 w-3 rounded-full shrink-0" style={{ background: STATI[x.stato].color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-[14px] truncate">{titleCase(x.riga.denominazione ?? "") || "—"}</div>
+                  <div className="text-[12px] text-ink-400 truncate"><span className="font-mono">{x.riga.cuaa ?? "senza CUAA"}</span> · «{x.file.nome}» riga {x.riga.riga}</div>
                 </div>
-              );
-            })}
+                <span className="text-[12.5px] font-semibold" style={{ color: STATI[x.stato].color }}>{NOME_STATO[x.stato]}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      <BarraAzioni n={selezione.n} nome={selezione.n === 1 ? "selezionata" : "selezionate"} onClear={selezione.svuota} azioni={[
-        { label: "Cambia stato", icon: <Send size={16} />, menu: (["R", "S", "C", "N"] as StatoDomanda[]).map((st) => ({ label: st === "R" ? "Fatta (rilasciata)" : st === "N" ? "Da fare" : STATI[st].label, dot: STATI[st].color, onClick: () => cambiaStato(st) })) },
-        { label: "Esporta", icon: <Download size={16} />, onClick: () => esporta(selezione.ids) },
-        { label: "Togli", icon: <UserMinus size={16} />, tone: "muted", menu: [
-          { label: "Togli dall'elenco", onClick: () => togliSel(false) },
-          { label: "Escludi dalla pratica", onClick: () => togliSel(true) },
-        ] },
-      ]} />
       {carica && <CaricaElenco open={!!carica} onClose={chiudiCaricamento} pratica={p} tipo={carica} />}
       <PraticaEditor value={edit ? p : null} onClose={() => setEdit(false)} />
       <ConfrontoBando open={confronto} onClose={() => setConfronto(false)} pratica={confronto ? p : null} />
@@ -260,11 +197,10 @@ export function PraticaDettaglioPage() {
   );
 }
 
-function Passo({ n, titolo, desc, info, azione, fatto, bloccato }: { n: number; titolo: string; desc: string; info?: React.ReactNode; azione: React.ReactNode; fatto: boolean; bloccato?: boolean }) {
+function Passo({ n, titolo, desc, children, fatto, bloccato }: { n: number; titolo: string; desc: string; children: ReactNode; fatto: boolean; bloccato?: boolean }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0, transition: { delay: n * 0.06 } }}
-      className={clsx("card p-6 flex flex-col", bloccato && "opacity-60")}>
-      <div className="flex items-start gap-4">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0, transition: { delay: n * 0.06 } }} className={clsx("card p-6 flex flex-col", bloccato && "opacity-60")}>
+      <div className="flex items-start gap-4 mb-5">
         <span className={clsx("h-11 w-11 rounded-2xl grid place-items-center shrink-0 font-extrabold text-[15px]", fatto ? "bg-brand-700 text-white" : bloccato ? "bg-ink-100 text-ink-400" : "bg-brand-50 text-brand-800")}>
           {fatto ? <Check size={20} strokeWidth={3} /> : bloccato ? <Lock size={18} /> : n}
         </span>
@@ -272,10 +208,33 @@ function Passo({ n, titolo, desc, info, azione, fatto, bloccato }: { n: number; 
           <div className="text-[12px] font-bold uppercase tracking-wider text-ink-400">Passo {n}</div>
           <div className="text-[19px] font-extrabold tracking-tight">{titolo}</div>
           <p className="text-[14px] text-ink-500 mt-1">{desc}</p>
-          {info && <p className="text-[12.5px] text-brand-800 font-medium mt-2">{info}</p>}
         </div>
       </div>
-      <div className="mt-5 flex justify-end">{azione}</div>
+      {children}
     </motion.div>
+  );
+}
+
+function SchedaFile({ f, sotto, chips, azioni, sel, onSel }: { f: PraticaFile; sotto: ReactNode; chips?: ReactNode; azioni: ReactNode; sel?: boolean; onSel?: (v: boolean) => void }) {
+  return (
+    <div className={clsx("rounded-2xl ring-1 px-4 py-3 flex items-center gap-3 transition-colors", sel ? "ring-brand-300 bg-brand-50/50" : "ring-ink-100")}>
+      {onSel && <Checkbox checked={!!sel} onChange={onSel} />}
+      <span className={clsx("h-10 w-10 rounded-xl grid place-items-center shrink-0", f.tipo === "modello" ? "bg-brand-50 text-brand-800" : "bg-blue-50 text-blue-700")}><FileSpreadsheet size={18} /></span>
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold text-[14px] truncate" title={f.nome}>{f.nome}</div>
+        <div className="text-[12px] text-ink-500 truncate">{sotto}</div>
+        {chips && <div className="mt-1.5 flex flex-wrap gap-1.5">{chips}</div>}
+      </div>
+      <div className="flex gap-1 shrink-0">{azioni}</div>
+    </div>
+  );
+}
+
+function IconBtn({ children, title, onClick, danger, disabled }: { children: ReactNode; title: string; onClick: () => void; danger?: boolean; disabled?: boolean }) {
+  return (
+    <button title={title} aria-label={title} onClick={onClick} disabled={disabled}
+      className={clsx("h-9 w-9 grid place-items-center rounded-xl transition disabled:opacity-30", danger ? "text-ink-400 hover:bg-red-50 hover:text-red-600" : "text-ink-400 hover:bg-ink-100 hover:text-ink-800")}>
+      {children}
+    </button>
   );
 }
