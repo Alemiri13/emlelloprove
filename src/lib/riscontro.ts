@@ -1,7 +1,10 @@
 /**
  * Riscontro tra l'elenco delle domande da fare (voci) e i file delle domande fatte.
  * Per ogni voce:
- *  - si cercano le righe dei file «fatte» con lo stesso CUAA (o, se manca, con lo stesso nominativo);
+ *  - si cercano le righe dei file «fatte» della stessa persona: stesso CUAA OPPURE stesso nominativo
+ *    (il nominativo vale anche se i CUAA sono scritti diversamente, per esempio codice fiscale e partita IVA;
+ *    non vale se nell'elenco ci sono due omonimi o se quel CUAA appartiene a un'altra riga dell'elenco);
+ *  - nessun altro criterio (numero di domanda, date, comune…) è usato per abbinare;
  *  - lo stato è il più avanzato trovato (fatta > stampata > in compilazione); se non c'è in nessun file: non fatta;
  *  - uno stato impostato a mano ha la precedenza;
  *  - le righe dell'elenco da fare con uno stato indicato nel file (colonna stato, «Data stampa»…) valgono come fonte.
@@ -12,8 +15,16 @@ import type { Esito, PraticaFile, RigaFile, StatoDomanda, Voce } from "./types";
 
 export const ORDINE: Record<StatoDomanda, number> = { N: 0, C: 1, S: 2, R: 3 };
 
+/** Forme societarie e parole che non identificano la persona. */
+const PAROLE_VUOTE = /\b(srl|srls|sas|snc|spa|ss|sc|scarl|soc|societa|semplice|agricola|agricole|agr|coop|cooperativa|ditta|individuale|impresa|azienda|az)\b/g;
+
+/**
+ * Chiave del nominativo: senza accenti, apostrofi, punteggiatura e forme societarie; parole in ordine alfabetico
+ * (così «ROSSI MARIA», «Maria Rossi», «D'Angelo» / «DANGELO», «Rossi S.S. Soc. Agr.» coincidono).
+ */
 export function chiaveNome(s: string | null | undefined) {
-  return normalizza(s ?? "").replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).sort().join(" ");
+  const t = normalizza(s ?? "").replace(/['.]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(PAROLE_VUOTE, " ");
+  return t.split(/\s+/).filter(Boolean).sort().join(" ");
 }
 export function chiaveCuaa(s: string | null | undefined) {
   const c = (s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -59,14 +70,18 @@ export function riscontro(voci: Voce[], files: PraticaFile[]): Riscontro {
   // nominativi ripetuti nell'elenco: l'abbinamento per nome vale solo se il nome è unico
   const nomiVoci = new Map<string, number>();
   voci.forEach((v) => { const n = chiaveNome(v.denominazione); if (n) nomiVoci.set(n, (nomiVoci.get(n) ?? 0) + 1); });
+  // CUAA presenti nell'elenco: una riga col CUAA di un'altra persona dell'elenco non si abbina per nome
+  const cuaaVoci = new Set(voci.map((v) => chiaveCuaa(v.cuaa)).filter(Boolean));
 
   const usate = new Set<Fonte>();
   const conteggi: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
   const out: VoceRiscontro[] = voci.map((v) => {
     const c = chiaveCuaa(v.cuaa);
     const n = chiaveNome(v.denominazione);
-    let cand = c ? perCuaa.get(c) ?? [] : [];
-    if (!cand.length && n && nomiVoci.get(n) === 1) cand = (perNome.get(n) ?? []).filter((x) => !x.riga.cuaa || !c || chiaveCuaa(x.riga.cuaa) === c);
+    // stessa persona: stesso CUAA oppure stesso nominativo
+    const perC = c ? perCuaa.get(c) ?? [] : [];
+    const perN = n && nomiVoci.get(n) === 1 ? (perNome.get(n) ?? []).filter((x) => { const xc = chiaveCuaa(x.riga.cuaa); return !xc || xc === c || !cuaaVoci.has(xc); }) : [];
+    const cand = [...new Set([...perC, ...perN])];
     cand.forEach((x) => usate.add(x));
     const migliore = cand.reduce<Fonte | null>((m, x) => (!m || ORDINE[x.stato] > ORDINE[m.stato] || (ORDINE[x.stato] === ORDINE[m.stato] && x.file.created_at > m.file.created_at) ? x : m), null);
     const derivato: StatoDomanda = migliore?.stato ?? "N";

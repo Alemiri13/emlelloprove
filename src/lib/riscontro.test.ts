@@ -27,4 +27,23 @@ const mod: PraticaFile = { ...file("modello", [riga("RSSMRA80A41E372Q", "ROSSI M
 const r3 = riscontro([voce("1", "RSSMRA80A41E372Q", "ROSSI MARIA"), voce("2", "BNCLGU75C12I520K", "BIANCHI LUIGI")], [mod]);
 ok("elenco senza stati: non fatta", r3.voci[0].stato === "N", r3.voci[0].stato);
 ok("elenco con «data stampa»: stampata", r3.voci[1].stato === "S" && r3.fuori.length === 0, r3.voci[1].stato);
+
+// confronto per persona: CUAA oppure nominativo
+const r4 = riscontro(
+  [voce("a", "RSSMRA80A41E372Q", "ROSSI MARIA"), voce("b", "01234567897", "D'ANGELO LUIGI"), voce("c", null, "Verdi Società Agricola S.S."), voce("d", "BNCLGU75C12I520K", "BIANCHI LUIGI"), voce("e", "NRIFNC90E50E372S", "NERI FRANCA"), voce("f", "GLLPLA58M21B865X", "NERI FRANCA")],
+  [file("x", [
+    riga("XXXXXX00A01H501Z", "Maria Rossi"),            // CUAA diverso ma stesso nominativo → si abbina per nome
+    riga(null, "DANGELO LUIGI", "S"),                     // apostrofo diverso
+    riga(null, "VERDI SOC. AGR.", "C"),                   // forma societaria
+    riga("BNCLGU75C12I520K", "BIANCHI L.", "R"),          // nome abbreviato ma stesso CUAA
+    riga(null, "NERI FRANCA", "R"),                       // omonimi nell'elenco: per nome non si abbina
+    riga("BNCLGU75C12I520K", "GALLI PAOLA", "R"),         // CUAA di Bianchi: va a Bianchi, non per nome
+  ])],
+);
+const s4 = (id: string) => r4.voci.find((v) => v.voce.id === id)!.stato;
+ok("nominativo con CUAA diverso", s4("a") === "R", s4("a"));
+ok("nominativo con apostrofo", s4("b") === "S", s4("b"));
+ok("nominativo con forma societaria", s4("c") === "C", s4("c"));
+ok("CUAA con nominativo diverso", s4("d") === "R", s4("d"));
+ok("omonimi: solo per CUAA", s4("e") === "N" && s4("f") === "N", s4("e") + s4("f"));
 console.log(ko ? `${ko} prove fallite` : "Tutte le prove superate");

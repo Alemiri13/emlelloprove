@@ -97,7 +97,7 @@ export function VoceModal({ id, onClose }: { id: string | null; onClose: () => v
           <FileSpreadsheet size={18} className="mt-0.5 shrink-0" />
           <div className="flex-1">
             {r?.fonte ? (
-              <>Trovata nel file <b>«{r.fonte.file.nome}»</b> (riga {r.fonte.riga.riga}) come <b>{STATI[r.fonte.stato].label.toLowerCase()}</b>{r.fonte.riga.numero ? <> · n. {r.fonte.riga.numero}</> : null}{r.fonte.riga.data ? <> · {fmtDate(r.fonte.riga.data)}</> : null}.</>
+              <>Trovata {chiaveCuaa(r.fonte.riga.cuaa) && chiaveCuaa(r.fonte.riga.cuaa) === chiaveCuaa(voce.cuaa) ? "per CUAA" : <>per nominativo («{r.fonte.riga.denominazione}»)</>} nel file <b>«{r.fonte.file.nome}»</b> (riga {r.fonte.riga.riga}) come <b>{STATI[r.fonte.stato].label.toLowerCase()}</b>{r.fonte.riga.numero ? <> · n. {r.fonte.riga.numero}</> : null}{r.fonte.riga.data ? <> · {fmtDate(r.fonte.riga.data)}</> : null}.</>
             ) : <>Non compare in nessun file delle domande fatte: risulta <b>non fatta</b>.</>}
           </div>
         </div>
