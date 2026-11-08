@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
-import { ArrowRight, ClipboardList, FilePlus2, FileStack, ListChecks, Sprout, UserPlus, Users } from "lucide-react";
-import { useMemo } from "react";
+import { Sparkles, ArrowRight, ClipboardList, FilePlus2, FileStack, ListChecks, Sprout, UserPlus, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CaricamentoIntelligente } from "../features/CaricamentoIntelligente";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useModals, useUfficio } from "../lib/ufficio";
@@ -11,6 +12,7 @@ export function HomePage() {
   const { profilo } = useAuth();
   const { nuovaAzienda, nuovaDomanda } = useModals();
   const nav = useNavigate();
+  const [smart, setSmart] = useState(false);
   const urgenti = useMemo(() => calcolaAttivita(aziende, pratiche, abbinamenti, domande).filter((a) => a.urgente).length, [aziende, pratiche, abbinamenti, domande]);
 
   const tiles = [
@@ -30,8 +32,9 @@ export function HomePage() {
         </h1>
       </motion.div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <QuickAction icon={<UserPlus size={24} />} title="Nuova azienda" desc="Inserisci un'azienda in pochi passi" onClick={nuovaAzienda} delay={0.05} />
+        <QuickAction icon={<Sparkles size={24} />} title="Carica documenti" desc="Li riconosco e archivio io" onClick={() => setSmart(true)} delay={0.08} />
         <QuickAction icon={<FilePlus2 size={24} />} title="Nuova domanda" desc="Avvia o aggiorna una pratica" onClick={() => nuovaDomanda()} delay={0.1} primary />
       </div>
 
@@ -67,6 +70,7 @@ export function HomePage() {
           </motion.button>
         ))}
       </div>
+      <CaricamentoIntelligente open={smart} onClose={() => setSmart(false)} />
     </div>
   );
 }

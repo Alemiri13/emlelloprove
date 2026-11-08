@@ -44,6 +44,14 @@ export interface Documento {
   id: string; azienda_id: string; pratica_id: string | null; categoria: string; tipo: string; titolo: string; numero: string | null;
   data_doc: string | null; scadenza: string | null; storage_path: string | null; file_name: string | null; mime: string | null;
   size: number | null; note: string | null; created_at: string; created_by: string | null;
+  analisi?: AnalisiSalvata | null; testo?: string | null; importo?: number | null; controparte?: string | null;
+  foglio?: string | null; particelle?: string | null; superficie_ha?: number | null;
+}
+
+/** Sintesi dell'analisi automatica salvata con il documento. */
+export interface AnalisiSalvata {
+  versione: number; metodo: string; tipo: string; categoria: string; confidenza: number;
+  indizi: string[]; alternative: { tipo: string; confidenza: number }[]; cuaa_trovati: string[]; corretto: boolean;
 }
 
 export interface Storico { id: number; azienda_id: string; testo: string; utente: string | null; created_at: string }

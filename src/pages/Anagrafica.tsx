@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDownAZ, Building2, ChevronRight, Leaf, Plus, Tractor, User, Users } from "lucide-react";
+import { CaricamentoIntelligente } from "../features/CaricamentoIntelligente";
+import { Sparkles, ArrowDownAZ, Building2, ChevronRight, Leaf, Plus, Tractor, User, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
@@ -25,6 +26,7 @@ export function AnagraficaPage() {
   const [ordine, setOrdine] = useState<Ordine>("nome");
   const [coltura, setColtura] = useState<string | null>(null);
   const [limit, setLimit] = useState(60);
+  const [smart, setSmart] = useState(false);
 
   const domByAz = useMemo(() => {
     const m = new Map<string, typeof domande>();
@@ -73,7 +75,12 @@ export function AnagraficaPage() {
       <PageHeader
         title="Anagrafica"
         subtitle={`Le aziende seguite dall'ufficio di ${ufficio.nome}`}
-        action={<Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={nuovaAzienda}>Nuova azienda</Button>}
+        action={
+          <div className="flex gap-3">
+            <Button size="lg" variant="secondary" icon={<Sparkles size={18} />} onClick={() => setSmart(true)}>Carica documenti</Button>
+            <Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={nuovaAzienda}>Nuova azienda</Button>
+          </div>
+        }
       />
 
       <div className="flex flex-col xl:flex-row gap-3 mb-4">
@@ -149,6 +156,7 @@ export function AnagraficaPage() {
           )}
         </>
       )}
+      <CaricamentoIntelligente open={smart} onClose={() => setSmart(false)} />
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL as string;
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+// Valori pubblici del progetto "Cia Project" usati se le variabili d'ambiente mancano.
+// La chiave "publishable" è pensata per il browser: la sicurezza dei dati è garantita dalle policy RLS.
+const url = (import.meta.env.VITE_SUPABASE_URL as string) || "https://cbfarrrsamwmlenxlugx.supabase.co";
+const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || "sb_publishable_auaQxErCxa6i-ubDhjTU1A_7rLINgDD";
 
 if (!url || !key) {
   // eslint-disable-next-line no-console

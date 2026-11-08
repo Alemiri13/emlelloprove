@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, Upload, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight, Ban, Link2,
+  Sparkles, Building2, CalendarDays, Copy, FileText, History, Leaf, Mail, MapPin, Pencil, Phone, Plus, Sprout, Tractor, Trash2, User, BadgeCheck, ClipboardList, ArrowRightLeft, Download, ChevronRight, Ban, Link2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
@@ -20,6 +20,7 @@ import { DatePicker } from "../components/ui/DatePicker";
 import { useFeedback } from "../components/ui/Feedback";
 import { Skeleton } from "../components/ui/Spinner";
 import { DocumentoModal } from "./DocumentoModal";
+import { CaricamentoIntelligente } from "./CaricamentoIntelligente";
 import type { Azienda, Documento } from "../lib/types";
 
 type Tab = "scheda" | "colture" | "domande" | "documenti" | "storico";
@@ -358,13 +359,14 @@ function DomandeTab({ a }: { a: Azienda }) {
 
 function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; loading: boolean }) {
   const [upload, setUpload] = useState(false);
+  const [smart, setSmart] = useState(false);
   const elimina = useEliminaDocumento();
   const { toast, confirm } = useFeedback();
   const kit = KIT.filter((k) => !k.soloPG || a.tipo === "PG").map((k) => ({ ...k, ok: (docs ?? []).some(k.t) }));
   const okCount = kit.filter((k) => k.ok).length;
 
   return (
-    <div className="grid lg:grid-cols-[320px_1fr] gap-5 items-start">
+    <div className="grid lg:grid-cols-[320px_minmax(0,1fr)] gap-5 items-start">
       <div className="card p-6">
         <div className="flex items-center justify-between mb-1">
           <SectionTitle className="!mb-0">Kit documentale</SectionTitle>
@@ -385,10 +387,13 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
       <div>
         <div className="flex items-center justify-between mb-3">
           <SectionTitle className="!mb-0">Archivio</SectionTitle>
-          <Button icon={<Upload size={16} />} onClick={() => setUpload(true)}>Carica documento</Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" icon={<Pencil size={14} />} onClick={() => setUpload(true)}>Senza file</Button>
+            <Button icon={<Sparkles size={16} />} onClick={() => setSmart(true)}>Carica documenti</Button>
+          </div>
         </div>
         {loading ? <Skeleton className="h-40 !rounded-2xl" /> : !docs?.length ? (
-          <div className="card"><Empty icon={<FileText size={26} />} title="Nessun documento" desc="Carica documenti d'identità, titoli di conduzione, visure e altro." action={<Button variant="soft" icon={<Upload size={16} />} onClick={() => setUpload(true)}>Carica il primo</Button>} /></div>
+          <div className="card"><Empty icon={<FileText size={26} />} title="Nessun documento" desc="Carica documenti d'identità, titoli di conduzione, visure e altro." action={<Button variant="soft" icon={<Sparkles size={16} />} onClick={() => setSmart(true)}>Carica e riconosci</Button>} /></div>
         ) : (
           <div className="card divide-y divide-ink-100">
             {docs.map((d) => {
@@ -405,6 +410,9 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
                       {cat && <span>{cat.l}</span>}
                       {d.data_doc && <><span className="text-ink-300">·</span><span>{fmtDate(d.data_doc)}</span></>}
                       {d.size ? <><span className="text-ink-300">·</span><span>{fileSize(d.size)}</span></> : null}
+                      {d.foglio && <><span className="text-ink-300">·</span><span>Fg. {d.foglio}{d.particelle ? ` p.lle ${d.particelle}` : ""}</span></>}
+                      {d.importo != null && <><span className="text-ink-300">·</span><span>{eur(d.importo, 2)}</span></>}
+                      {d.analisi && !d.analisi.corretto && <><span className="text-ink-300">·</span><span className="inline-flex items-center gap-1 text-brand-700 font-semibold"><Sparkles size={11} />riconosciuto {Math.round(d.analisi.confidenza * 100)}%</span></>}
                     </div>
                   </div>
                   {d.scadenza && (
@@ -427,6 +435,7 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
         )}
       </div>
       <DocumentoModal open={upload} onClose={() => setUpload(false)} azienda={a} />
+      <CaricamentoIntelligente open={smart} onClose={() => setSmart(false)} aziendaId={a.id} />
     </div>
   );
 }
