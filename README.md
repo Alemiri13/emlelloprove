@@ -92,3 +92,12 @@ stati R/S/C/N, esiti con motivi e riesame, pagamento calcolato dagli importi, qu
 ## Brogliaccio (colture dell'azienda)
 
 Le colture non hanno più una voce di menu: si gestiscono dalla scheda dell'azienda in anagrafica, tab **Colture → Carica il brogliaccio**: dall'Excel del fascicolo (`src/lib/brogliaccio.ts`) si riconoscono la colonna della coltura (occupazione / uso del suolo / prodotto, con destinazione, uso e varietà) e quella della superficie (utilizzata > condotta > catastale; ettari, metri quadri, «ha.aa.ca» o colonne Ha/Are/Ca). Le superfici si sommano per coltura e si abbinano al catalogo (sinonimi: uliveto → Olivo, vigneto → Vite da vino, frumento duro → Grano duro…); tare, fabbricati e incolti non si contano. Si può correggere ogni abbinamento, creare colture nuove, sostituire le colture attuali, aggiornare la SAU e archiviare il file tra i documenti. Se il CUAA scritto nel file è diverso da quello dell'azienda compare un avviso.
+
+## App sull'iPhone (schermata Home)
+
+L'app è una web app installabile (`public/manifest.webmanifest`, icone in `public/`): aperta dalla schermata Home si avvia a schermo intero, senza le barre di Safari o Chrome.
+
+- **Safari**: apri l'indirizzo dell'app → pulsante Condividi → «Aggiungi alla schermata Home» → Aggiungi.
+- **Chrome su iPhone** (iOS 16.4 o successivo): menu Condividi nella barra dell'indirizzo → «Aggiungi alla schermata Home».
+
+Al primo avvio dall'icona serve accedere di nuovo (l'app installata ha una memoria separata dal browser). L'interfaccia rispetta tacca e barra in basso dell'iPhone e i campi non fanno zoomare la pagina.

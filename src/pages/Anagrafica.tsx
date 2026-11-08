@@ -346,7 +346,8 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
         <h1 className="text-[34px] sm:text-[40px] font-extrabold tracking-[-0.04em] leading-none">{title}</h1>
         {subtitle && <p className="text-ink-500 mt-2.5 text-[15px]">{subtitle}</p>}
       </div>
-      {action}
+      {/* su telefono i pulsanti vanno a capo e si dividono la larghezza, senza uscire dallo schermo */}
+      {action && <div className="min-w-0 max-sm:w-full [&>div]:flex-wrap max-sm:[&>div]:w-full max-sm:[&_button]:flex-1 max-sm:[&_button]:min-w-[140px]">{action}</div>}
     </div>
   );
 }

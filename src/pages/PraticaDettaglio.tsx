@@ -192,12 +192,12 @@ export function PraticaDettaglioPage() {
 
 function Passo({ n, titolo, desc, children, fatto, bloccato }: { n: number; titolo: string; desc: string; children: ReactNode; fatto: boolean; bloccato?: boolean }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0, transition: { delay: n * 0.06 } }} className={clsx("card p-6 flex flex-col", bloccato && "opacity-60")}>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0, transition: { delay: n * 0.06 } }} className={clsx("card p-5 sm:p-6 flex flex-col min-w-0", bloccato && "opacity-60")}>
       <div className="flex items-start gap-4 mb-5">
         <span className={clsx("h-11 w-11 rounded-2xl grid place-items-center shrink-0 font-extrabold text-[15px]", fatto ? "bg-brand-700 text-white" : bloccato ? "bg-ink-100 text-ink-400" : "bg-brand-50 text-brand-800")}>
           {fatto ? <Check size={20} strokeWidth={3} /> : bloccato ? <Lock size={18} /> : n}
         </span>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="text-[12px] font-bold uppercase tracking-wider text-ink-400">Passo {n}</div>
           <div className="text-[19px] font-extrabold tracking-tight">{titolo}</div>
           <p className="text-[14px] text-ink-500 mt-1">{desc}</p>

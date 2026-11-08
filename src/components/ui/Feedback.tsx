@@ -34,7 +34,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     <FeedbackCtx.Provider value={{ toast, confirm }}>
       {children}
       {createPortal(
-        <div className="fixed z-[90] bottom-5 right-5 left-5 sm:left-auto flex flex-col items-end gap-2.5 pointer-events-none">
+        <div className="fixed z-[90] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-5 left-5 sm:left-auto flex flex-col items-end gap-2.5 pointer-events-none">
           <AnimatePresence initial={false}>
             {toasts.map((t) => (
               <motion.div

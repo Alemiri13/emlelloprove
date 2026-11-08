@@ -97,7 +97,7 @@ export function Modal({ open, onClose, children, size = "md", title, subtitle, i
             role="dialog"
             aria-modal="true"
             className={clsx(
-              "relative w-full bg-white sm:rounded-[28px] rounded-t-[28px] shadow-pop flex flex-col max-h-[92vh] sm:max-h-[88vh] overflow-hidden",
+              "relative w-full bg-white sm:rounded-[28px] rounded-t-[28px] shadow-pop flex flex-col max-h-[92dvh] sm:max-h-[88vh] overflow-hidden pb-[env(safe-area-inset-bottom)] sm:pb-0",
               SIZES[size],
               className,
             )}
