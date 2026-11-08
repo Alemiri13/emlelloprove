@@ -1,0 +1,54 @@
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  body { @apply bg-white text-ink-900 font-sans; font-feature-settings: "ss01", "cv11"; }
+  ::selection { background: rgba(91, 180, 74, 0.25); }
+  * { -webkit-tap-highlight-color: transparent; }
+  input, textarea, button { font: inherit; color: inherit; }
+  input::placeholder, textarea::placeholder { @apply text-ink-400; }
+  /* niente spinner nativi */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
+  :focus { outline: none; }
+  :focus-visible { outline: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgba(63, 154, 51, 0.55); }
+  /* i campi hanno già il proprio anello di focus sul contenitore */
+  input:focus-visible { box-shadow: none; }
+
+  /* scrollbar personalizzata */
+  * { scrollbar-width: thin; scrollbar-color: #cfd8d2 transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: #d5ddd8; border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: #b6c2bb; border: 3px solid transparent; background-clip: content-box; }
+}
+
+@layer components {
+  .field {
+    @apply w-full h-12 rounded-xl bg-white border border-ink-200 px-4 text-[15px] text-ink-900 shadow-[inset_0_1px_1px_rgba(16,40,24,.03)]
+      transition-[border-color,box-shadow,background-color] duration-200 ease-out
+      hover:border-ink-300 focus:border-brand-400 focus:shadow-ring;
+  }
+  .field-lg { @apply h-14 text-lg rounded-2xl px-5; }
+  .label { @apply block text-[13px] font-semibold text-ink-700 mb-1.5 tracking-[-0.005em]; }
+  .hint { @apply text-xs text-ink-500 mt-1.5; }
+  .card { @apply bg-white rounded-2xl border border-ink-100 shadow-card; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 h-7 text-xs font-semibold whitespace-nowrap; }
+  .kbd { @apply inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-md border border-ink-200 bg-ink-50 text-[11px] font-semibold text-ink-500; }
+  .skeleton { @apply rounded-lg bg-[linear-gradient(90deg,#eef2ef_0px,#f7f9f7_120px,#eef2ef_240px)] bg-[length:800px_100%] animate-shimmer; }
+  .scroll-fade-x { mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%); }
+}
+
+/* sfondo login */
+.bg-grain {
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgba(91,180,74,.28), transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, rgba(91,180,74,.22), transparent 60%),
+    linear-gradient(160deg, #00502A 0%, #013D20 55%, #012615 100%);
+}
