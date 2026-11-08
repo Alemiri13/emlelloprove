@@ -1,13 +1,15 @@
 import { motion } from "framer-motion";
-import { Check, ChevronRight, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Download, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { BarraAzioni, SelezionaTutti, useSelezione } from "../components/ui/Bulk";
+import { esportaExcel } from "../lib/esporta";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { CATEGORIE_COLTURE, COLORI_COLTURE } from "../lib/domain";
 import { ha, normalizeSearch, titleCase } from "../lib/format";
-import { useEliminaColtura, useSalvaColtura } from "../lib/queries";
+import { useEliminaColtura, useEliminaColture, useSalvaColtura } from "../lib/queries";
 import { Button } from "../components/ui/Button";
-import { Field, SearchInput, TextInput } from "../components/ui/Inputs";
+import { Checkbox, Field, SearchInput, TextInput } from "../components/ui/Inputs";
 import { Segmented } from "../components/ui/Segmented";
 import { Modal } from "../components/ui/Modal";
 import { Avatar, Empty } from "../components/ui/Misc";
@@ -21,6 +23,9 @@ export function ColturePage() {
   const [cat, setCat] = useState<string>("tutte");
   const [edit, setEdit] = useState<Coltura | "new" | null>(null);
   const [detail, setDetail] = useState<Coltura | null>(null);
+  const selezione = useSelezione();
+  const eliminaMolte = useEliminaColture();
+  const { toast, confirm } = useFeedback();
 
   const stats = useMemo(() => {
     const m = new Map<string, { n: number; ha: number }>();
@@ -95,18 +100,23 @@ export function ColturePage() {
       {list.length === 0 ? (
         <div className="card"><Empty icon={<Sprout size={28} />} title="Nessuna coltura" action={<Button icon={<Plus size={18} />} onClick={() => setEdit("new")}>Aggiungi coltura</Button>} /></div>
       ) : (
+        <>
+        <div className="mb-3 pl-1"><SelezionaTutti ids={list.map((c) => c.id)} sel={selezione.sel} onChange={selezione.imposta} etichetta={<>{list.length} colture{selezione.n > 0 && <> · <b className="text-brand-800">{selezione.n} selezionate</b></>}</>} /></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {list.map((c, i) => {
             const s = stats.get(c.id);
             return (
-              <motion.button
+              <motion.div
+                role="button"
+                tabIndex={0}
                 key={c.id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0, transition: { delay: Math.min(i, 12) * 0.03 } }}
                 whileHover={{ y: -3 }}
                 onClick={() => setDetail(c)}
-                className="group relative text-left card p-6 hover:shadow-lift transition-shadow duration-300 overflow-hidden"
+                className={clsx("group relative text-left card p-6 cursor-pointer hover:shadow-lift transition-shadow duration-300 overflow-hidden", selezione.sel.has(c.id) && "!border-brand-300 !bg-brand-50/40")}
               >
+                <span onClick={(e) => e.stopPropagation()} className="absolute top-4 left-4 z-10"><Checkbox checked={selezione.sel.has(c.id)} onChange={(v) => selezione.toggle(c.id, v)} className={clsx(!selezione.sel.has(c.id) && "opacity-0 group-hover:opacity-100")} /></span>
                 <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-[0.10] group-hover:opacity-20 group-hover:scale-125 transition-all duration-500" style={{ background: c.colore }} />
                 <div className="relative flex items-start justify-between">
                   <span className="h-14 w-14 rounded-2xl grid place-items-center" style={{ background: c.colore + "1F", color: c.colore }}><Sprout size={26} /></span>
@@ -120,11 +130,19 @@ export function ColturePage() {
                   </div>
                   <ChevronRight size={20} className="text-ink-300 group-hover:text-brand-700 group-hover:translate-x-1 transition-all" />
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
         </div>
+        </>
       )}
+      <BarraAzioni n={selezione.n} nome={selezione.n === 1 ? "selezionata" : "selezionate"} onClear={selezione.svuota} azioni={[
+        { label: "Esporta", icon: <Download size={15} />, onClick: () => esportaExcel("colture", ["Coltura", "Categoria", "Aziende", "Superficie (ha)"], colture.filter((c) => selezione.sel.has(c.id)).map((c) => [c.nome, c.categoria, stats.get(c.id)?.n ?? 0, stats.get(c.id)?.ha ?? 0])) },
+        { label: "Elimina", icon: <Trash2 size={15} />, tone: "danger", onClick: async () => {
+          if (!(await confirm({ title: `Eliminare ${selezione.n} colture dal catalogo?`, message: "Si possono eliminare solo le colture che nessuna azienda usa.", danger: true, confirmLabel: "Elimina" }))) return;
+          try { await eliminaMolte.mutateAsync(selezione.ids); toast("success", "Colture eliminate"); selezione.svuota(); } catch (e) { toast("error", "Non eliminabili", (e as Error).message); }
+        } },
+      ]} />
 
       <ColturaEditor value={edit} onClose={() => setEdit(null)} />
       <ColturaDetail c={detail} onClose={() => setDetail(null)} onEdit={(c) => { setDetail(null); setEdit(c); }} />

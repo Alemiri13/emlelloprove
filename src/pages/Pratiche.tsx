@@ -1,19 +1,23 @@
 import { motion } from "framer-motion";
 import { ConfrontoBando } from "../features/ConfrontoBando";
 import { useNavigate } from "react-router-dom";
+import { Download, Filter, Power, PowerOff, RotateCcw } from "lucide-react";
+import { BarraAzioni, SelezionaTutti, useSelezione } from "../components/ui/Bulk";
+import { esportaExcel } from "../lib/esporta";
 import { Scale, BadgeCheck, CalendarClock, Check, FileStack, FileSpreadsheet, Leaf, Pencil, Plus, Tractor, Trash2, X, Droplets } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { abbinate, descriviCriteri } from "../lib/domain";
-import { daysFromToday, fmtDate, relDays } from "../lib/format";
-import { useEliminaPratica, useSalvaPratica } from "../lib/queries";
+import { daysFromToday, fmtDate, normalizeSearch, relDays } from "../lib/format";
+import { useAttivaPratiche, useEliminaPratica, useEliminaPratiche, useSalvaPratica } from "../lib/queries";
 import { Button } from "../components/ui/Button";
-import { ChoiceCard, Field, NumberInput, TextArea, TextInput, Toggle, ToggleCard } from "../components/ui/Inputs";
+import { Checkbox, ChoiceCard, Field, NumberInput, SearchInput, TextArea, TextInput, Toggle, ToggleCard } from "../components/ui/Inputs";
+import { Select } from "../components/ui/Select";
 import { DatePicker } from "../components/ui/DatePicker";
 import { Segmented } from "../components/ui/Segmented";
 import { Wizard } from "../components/ui/Wizard";
-import { Badge, ProgressStati } from "../components/ui/Misc";
+import { Badge, Empty, ProgressStati } from "../components/ui/Misc";
 import { useFeedback } from "../components/ui/Feedback";
 import { PageHeader } from "./Anagrafica";
 import type { Criteri, Pratica, StatoDomanda } from "../lib/types";
@@ -26,12 +30,55 @@ export function PratichePage() {
   const { nuovaDomanda } = useModals();
   const salva = useSalvaPratica();
   const nomiColture = useMemo(() => Object.fromEntries([...colturaById.values()].map((c) => [c.id, c.nome])), [colturaById]);
+  const [q, setQ] = useState("");
+  const [filtro, setFiltro] = useState<"tutte" | "annuale" | "bando" | "attive" | "non_attive" | "senza_elenco" | "in_scadenza" | "scadute">("tutte");
+  const selezione = useSelezione();
+  const attiva = useAttivaPratiche();
+  const eliminaMolte = useEliminaPratiche();
+  const { toast, confirm } = useFeedback();
+
+  const righe = useMemo(() => pratiche.map((p) => {
+    const ab = abbinate(aziende, p, abbinamenti, domande);
+    const counts: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
+    for (const id of ab.keys()) counts[domandaByKey.get(id + "|" + p.id)?.stato ?? "N"]++;
+    return { p, ab, counts, g: daysFromToday(p.scadenza) };
+  }), [pratiche, aziende, abbinamenti, domande, domandaByKey]);
+
+  const filtrate = useMemo(() => {
+    const n = normalizeSearch(q.trim());
+    return righe.filter(({ p, g }) => {
+      if (n && !normalizeSearch(`${p.nome} ${p.codice ?? ""} ${p.ente ?? ""}`).includes(n)) return false;
+      switch (filtro) {
+        case "annuale": return p.categoria === "annuale";
+        case "bando": return p.categoria === "bando";
+        case "attive": return p.attivo;
+        case "non_attive": return !p.attivo;
+        case "senza_elenco": return !p.modello;
+        case "in_scadenza": return g != null && g >= 0 && g <= 30;
+        case "scadute": return g != null && g < 0;
+        default: return true;
+      }
+    });
+  }, [righe, q, filtro]);
+
+  const esporta = (ids?: string[]) => {
+    const l = ids ? righe.filter((r) => ids.includes(r.p.id)) : filtrate;
+    esportaExcel(`pratiche_${ufficio.id}`, ["Pratica", "Codice", "Tipo", "Ente", "Scadenza", "Attiva", "Elenco da fare", "Aziende", "Fatte", "Stampate", "In compilazione", "Da fare"],
+      l.map(({ p, ab, counts }) => [p.nome, p.codice, p.categoria === "bando" ? "Bando" : "Annuale", p.ente, p.scadenza ? fmtDate(p.scadenza) : "", p.attivo ? "SI" : "NO", p.modello ? "Caricato" : "No", ab.size, counts.R, counts.S, counts.C, counts.N]));
+  };
+  const eliminaSel = async () => {
+    const n = selezione.n;
+    if (!(await confirm({ title: `Eliminare ${n} ${n === 1 ? "pratica" : "pratiche"}?`, message: "Vengono eliminate anche tutte le domande, gli elenchi e lo storico dei caricamenti collegati, in tutti gli uffici.", danger: true, confirmLabel: "Elimina" }))) return;
+    await eliminaMolte.mutateAsync(selezione.ids);
+    toast("success", `${n} ${n === 1 ? "pratica eliminata" : "pratiche eliminate"}`);
+    selezione.svuota();
+  };
 
   return (
     <div>
       <PageHeader
         title="Pratiche e bandi"
-        subtitle="Scadenze, requisiti e quote: valgono per tutti e tre gli uffici"
+        subtitle="Pratiche annuali e bandi: valgono per tutti e tre gli uffici"
         action={
           <div className="flex gap-3">
             <Button size="lg" variant="secondary" icon={<Plus size={18} />} onClick={nuovaDomanda}>Nuova pratica</Button>
@@ -39,21 +86,36 @@ export function PratichePage() {
           </div>
         }
       />
+      <div className="flex flex-col lg:flex-row gap-3 mb-4">
+        <SearchInput value={q} onChange={setQ} placeholder="Cerca pratica, codice o ente…" size="lg" className="flex-1" shortcut />
+        <Select value={filtro} onChange={setFiltro} size="lg" className="lg:w-64" icon={<Filter size={17} />} options={[
+          { value: "tutte", label: `Tutte (${righe.length})` },
+          { value: "annuale", label: "Solo annuali" }, { value: "bando", label: "Solo bandi / una tantum" },
+          { value: "attive", label: "Attive" }, { value: "non_attive", label: "Non attive" },
+          { value: "senza_elenco", label: "Senza elenco da fare" },
+          { value: "in_scadenza", label: "In scadenza (30 giorni)" }, { value: "scadute", label: "Scadute" },
+        ]} />
+      </div>
+      <div className="flex items-center gap-3 mb-4 pl-1">
+        <SelezionaTutti ids={filtrate.map((r) => r.p.id)} sel={selezione.sel} onChange={selezione.imposta} etichetta={<>{filtrate.length} {filtrate.length === 1 ? "pratica" : "pratiche"}{selezione.n > 0 && <> · <b className="text-brand-800">{selezione.n} selezionate</b></>}</>} />
+        <div className="flex-1" />
+        {(q || filtro !== "tutte") && <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={() => { setQ(""); setFiltro("tutte"); }}>Azzera filtri</Button>}
+        {filtrate.length > 0 && <Button variant="secondary" size="sm" icon={<Download size={14} />} onClick={() => esporta()}>Esporta</Button>}
+      </div>
+      {filtrate.length === 0 && <div className="card"><Empty icon={<FileStack size={26} />} title="Nessuna pratica" desc={pratiche.length ? "Cambia la ricerca o il filtro." : "Crea la prima pratica."} /></div>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {pratiche.map((p, i) => {
-          const ab = abbinate(aziende, p, abbinamenti, domande);
-          const counts: Record<StatoDomanda, number> = { N: 0, C: 0, S: 0, R: 0 };
-          for (const id of ab.keys()) counts[domandaByKey.get(id + "|" + p.id)?.stato ?? "N"]++;
-          const g = daysFromToday(p.scadenza);
+        {filtrate.map(({ p, ab, counts, g }, i) => {
+          const scelta = selezione.sel.has(p.id);
           return (
             <motion.div
               key={p.id}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0, transition: { delay: i * 0.04 } }}
               onClick={() => nav(p.id)}
-              className={clsx("group card p-6 flex flex-col cursor-pointer hover:shadow-lift hover:border-ink-200 transition-shadow duration-300", !p.attivo && "opacity-60")}
+              className={clsx("group card p-6 flex flex-col cursor-pointer hover:shadow-lift hover:border-ink-200 transition-shadow duration-300", !p.attivo && !scelta && "opacity-60", scelta && "!border-brand-300 !bg-brand-50/40")}
             >
               <div className="flex items-start gap-4">
+                <span onClick={(e) => e.stopPropagation()} className="pt-4"><Checkbox checked={scelta} onChange={(v) => selezione.toggle(p.id, v)} className={clsx(!scelta && "opacity-40 group-hover:opacity-100")} /></span>
                 <span className={clsx("h-14 w-14 rounded-2xl grid place-items-center shrink-0 text-[12px] font-extrabold", p.categoria === "bando" ? "bg-amber-50 text-amber-700" : "bg-brand-50 text-brand-800")}>
                   {sigla(p)}
                 </span>
@@ -94,6 +156,12 @@ export function PratichePage() {
           );
         })}
       </div>
+      <BarraAzioni n={selezione.n} nome={selezione.n === 1 ? "selezionata" : "selezionate"} onClear={selezione.svuota} azioni={[
+        { label: "Attiva", icon: <Power size={16} />, onClick: async () => { await attiva.mutateAsync({ ids: selezione.ids, attivo: true }); toast("success", "Pratiche attivate"); selezione.svuota(); } },
+        { label: "Disattiva", icon: <PowerOff size={16} />, onClick: async () => { await attiva.mutateAsync({ ids: selezione.ids, attivo: false }); toast("success", "Pratiche disattivate"); selezione.svuota(); } },
+        { label: "Esporta", icon: <Download size={16} />, onClick: () => esporta(selezione.ids) },
+        { label: "Elimina", icon: <Trash2 size={16} />, tone: "danger", onClick: eliminaSel },
+      ]} />
       <PraticaEditor value={edit} onClose={() => setEdit(null)} />
       <ConfrontoBando open={!!confronto} onClose={() => setConfronto(null)} pratica={confronto && confronto !== "nuovo" ? confronto : null} />
     </div>

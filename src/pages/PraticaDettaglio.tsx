@@ -1,5 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, CalendarClock, Check, ChevronRight, ClipboardList, FileSpreadsheet, History, ListChecks, Lock, Pencil, RefreshCw, Scale, Upload } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, ChevronRight, ClipboardList, Download, FileSpreadsheet, History, ListChecks, Lock, Pencil, RefreshCw, Scale, Send, Trash2, Upload, UserMinus } from "lucide-react";
+import { BarraAzioni, SelezionaTutti, useSelezione } from "../components/ui/Bulk";
+import { esportaExcel } from "../lib/esporta";
+import { useEliminaCaricamenti, useStatoMultiplo, useTogliDaPratica } from "../lib/queries";
+import { useFeedback } from "../components/ui/Feedback";
+import { Select } from "../components/ui/Select";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
@@ -7,7 +12,7 @@ import { useModals, useUfficio } from "../lib/ufficio";
 import { abbinate, ORDINE_STATI, STATI } from "../lib/domain";
 import { daysFromToday, fmtDate, fmtDateTime, normalizeSearch, relDays, titleCase } from "../lib/format";
 import { Button } from "../components/ui/Button";
-import { SearchInput } from "../components/ui/Inputs";
+import { Checkbox, SearchInput } from "../components/ui/Inputs";
 import { Avatar, Badge, Empty, ProgressStati, StatoPill } from "../components/ui/Misc";
 import { CaricaElenco } from "../features/pratica/CaricaElenco";
 import { ConfrontoBando } from "../features/ConfrontoBando";
@@ -29,6 +34,12 @@ export function PraticaDettaglioPage() {
   const [filtro, setFiltro] = useState<Filtro>("tutte");
   const [q, setQ] = useState("");
   const [limit, setLimit] = useState(100);
+  const selezione = useSelezione(id);
+  const selCar = useSelezione(id);
+  const statoMulti = useStatoMultiplo();
+  const togli = useTogliDaPratica();
+  const elCar = useEliminaCaricamenti();
+  const { toast, confirm } = useFeedback();
 
   // arrivo da «Nuova domanda»: si apre subito il caricamento dell'elenco
   // (lo stato della navigazione si azzera solo alla chiusura: durante l'animazione la pagina può essere montata due volte)
@@ -59,6 +70,35 @@ export function PraticaDettaglioPage() {
   }, [righe, filtro, q]);
 
   if (!p) return loading ? null : <Navigate to={`/u/${ufficio.id}/pratiche`} replace />;
+
+  const cambiaStato = async (st: StatoDomanda) => {
+    const ids = selezione.ids;
+    if (st === "N" && !(await confirm({ title: `Riportare ${ids.length} aziende a «da fare»?`, message: "Le loro domande vengono eliminate (numero, date, esito).", danger: true, confirmLabel: "Conferma" }))) return;
+    await statoMulti.mutateAsync({ pratica_id: p.id, aziende: ids, stato: st });
+    toast("success", `${ids.length} domande aggiornate`, STATI[st].label); selezione.svuota();
+  };
+  const togliSel = async (escludi: boolean) => {
+    const ids = selezione.ids;
+    if (!(await confirm({ title: `Togliere ${ids.length} aziende dalla pratica?`, message: escludi ? "Vengono eliminate le loro domande ed escluse dalla pratica (non rientrano neppure con i requisiti automatici)." : "Vengono eliminate le loro domande e tolte dall'elenco delle domande da fare.", danger: true, confirmLabel: "Togli" }))) return;
+    await togli.mutateAsync({ pratica_id: p.id, aziende: ids, escludi });
+    toast("success", `${ids.length} aziende tolte dalla pratica`); selezione.svuota();
+  };
+  const esporta = (ids?: string[]) => {
+    const l = ids ? righe.filter((r) => ids.includes(r.a.id)) : lista;
+    esportaExcel(`${p.codice ?? p.id}_${ufficio.id}`, ["CUAA", "Denominazione", "Stato", "N. domanda", "Data presentazione", "Esito", "Litri assegnati", "Note"],
+      l.map(({ a, d }) => [a.cuaa, a.denominazione, STATI[d?.stato ?? "N"].label, d?.numero, d?.data_presentazione ? fmtDate(d.data_presentazione) : "", d?.stato === "R" ? { I: "In istruttoria", A: "Ammessa", P: "Ammessa in parte", X: "Non ammessa" }[d.esito] : "", d?.litri_assegnati, d?.note]));
+  };
+  const eliminaCaricamenti = async (ids: string[]) => {
+    const conModello = miei.filter((c) => ids.includes(c.id) && c.tipo === "modello");
+    const restaModello = miei.some((c) => c.tipo === "modello" && !ids.includes(c.id));
+    const svuota = conModello.length > 0 && !restaModello;
+    if (!(await confirm({ title: `Eliminare ${ids.length} ${ids.length === 1 ? "caricamento" : "caricamenti"} dallo storico?`,
+      message: svuota ? "Elimini anche l'elenco delle domande da fare: le aziende escono dall'elenco (le domande già registrate restano) e la pratica torna ai requisiti automatici." : "Gli stati delle domande non cambiano: si toglie solo la voce dallo storico.",
+      danger: true, confirmLabel: "Elimina" }))) return;
+    const membri = abbinamenti.filter((x) => x.pratica_id === p.id && x.tipo === "incluso").map((x) => x.azienda_id).filter((az) => aziende.some((a) => a.id === az));
+    await elCar.mutateAsync({ ids, svuotaElenco: svuota ? { pratica_id: p.id, aziende: membri } : undefined });
+    toast("success", "Storico aggiornato"); selCar.svuota();
+  };
   const g = daysFromToday(p.scadenza);
   const tot = righe.length;
 
@@ -131,19 +171,27 @@ export function PraticaDettaglioPage() {
       {/* elenco aziende con pallino */}
       <div className="mt-5 flex flex-col sm:flex-row gap-3">
         <SearchInput value={q} onChange={setQ} placeholder="Cerca azienda, CUAA o numero domanda…" className="flex-1" />
-        {filtro !== "tutte" && <Button variant="secondary" onClick={() => setFiltro("tutte")}>Mostra tutte</Button>}
+        <Select value={filtro} onChange={setFiltro} className="sm:w-56" options={[
+          { value: "tutte", label: `Tutti gli stati (${tot})` },
+          ...(["R", "S", "C", "N"] as StatoDomanda[]).map((s) => ({ value: s, label: `${s === "R" ? "Fatte" : s === "N" ? "Da fare" : STATI[s].label} (${counts[s]})`, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATI[s].color }} /> })),
+        ]} />
+        {lista.length > 0 && <Button variant="secondary" icon={<Download size={16} />} onClick={() => esporta()}>Esporta</Button>}
       </div>
       <div className="mt-3 card overflow-hidden">
         {tot === 0 ? (
           <Empty icon={<ClipboardList size={26} />} title="Nessuna azienda nella pratica" desc="Carica l'elenco delle domande da fare per iniziare." action={<Button icon={<Upload size={17} />} onClick={() => setCarica("modello")}>Carica l'elenco da fare</Button>} />
         ) : lista.length === 0 ? <Empty icon={<ClipboardList size={26} />} title="Nessuna azienda con questo filtro" /> : (
           <div className="divide-y divide-ink-100">
+            <div className="px-5 h-11 flex items-center bg-ink-50/60">
+              <SelezionaTutti ids={lista.map((r) => r.a.id)} sel={selezione.sel} onChange={selezione.imposta} etichetta={<>{lista.length} aziende{selezione.n > 0 && <> · <b className="text-brand-800">{selezione.n} selezionate</b></>}</>} />
+            </div>
             <AnimatePresence initial={false}>
               {lista.slice(0, limit).map(({ a, d }, i) => {
                 const st = d?.stato ?? "N";
                 return (
-                  <motion.button key={a.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: Math.min(i, 15) * 0.012 } }} exit={{ opacity: 0 }}
-                    onClick={() => apriDomanda(a.id, p.id)} className="group w-full flex items-center gap-4 px-5 py-3 text-left hover:bg-ink-50/80 transition-colors">
+                  <motion.div role="button" tabIndex={0} key={a.id} layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: Math.min(i, 15) * 0.012 } }} exit={{ opacity: 0 }}
+                    onClick={() => apriDomanda(a.id, p.id)} className={clsx("group w-full flex items-center gap-4 px-5 py-3 text-left transition-colors", selezione.sel.has(a.id) ? "bg-brand-50/60" : "hover:bg-ink-50/80")}>
+                    <span onClick={(e) => e.stopPropagation()}><Checkbox checked={selezione.sel.has(a.id)} onChange={(v) => selezione.toggle(a.id, v)} /></span>
                     <span className="relative h-3.5 w-3.5 shrink-0">
                       <span className="absolute inset-0 rounded-full" style={{ background: STATI[st].color }} />
                       {st === "N" && <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: STATI[st].color }} />}
@@ -156,7 +204,7 @@ export function PraticaDettaglioPage() {
                     <span className="hidden md:block w-40 text-[12.5px] text-ink-500 truncate">{d?.numero ?? ""}{d?.data_presentazione ? ` · ${fmtDate(d.data_presentazione)}` : ""}</span>
                     <StatoPill stato={st} />
                     <ChevronRight size={17} className="text-ink-300 group-hover:text-brand-700" />
-                  </motion.button>
+                  </motion.div>
                 );
               })}
             </AnimatePresence>
@@ -168,13 +216,19 @@ export function PraticaDettaglioPage() {
       {/* storico caricamenti */}
       {miei.length > 0 && (
         <div className="mt-6">
-          <div className="text-[13px] font-bold uppercase tracking-[0.06em] text-ink-400 mb-3 flex items-center gap-2"><History size={14} /> Caricamenti</div>
+          <div className="mb-3 flex items-center gap-3">
+            <div className="text-[13px] font-bold uppercase tracking-[0.06em] text-ink-400 flex items-center gap-2"><History size={14} /> Caricamenti</div>
+            <div className="flex-1" />
+            <SelezionaTutti ids={miei.map((c) => c.id)} sel={selCar.sel} onChange={selCar.imposta} etichetta={selCar.n ? `${selCar.n} selezionati` : "Seleziona tutti"} />
+            {selCar.n > 0 && <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" icon={<Trash2 size={14} />} loading={elCar.isPending} onClick={() => eliminaCaricamenti(selCar.ids)}>Elimina</Button>}
+          </div>
           <div className="card divide-y divide-ink-100">
             {miei.map((c) => {
               const r = c.riepilogo as Record<string, number | Record<string, number>>;
               const ps = (r.perStato ?? {}) as Record<string, number>;
               return (
-                <div key={c.id} className="flex items-center gap-4 px-5 py-3.5">
+                <div key={c.id} className={clsx("flex items-center gap-4 px-5 py-3.5", selCar.sel.has(c.id) && "bg-brand-50/50")}>
+                  <Checkbox checked={selCar.sel.has(c.id)} onChange={(v) => selCar.toggle(c.id, v)} />
                   <span className={clsx("h-10 w-10 rounded-xl grid place-items-center", c.tipo === "modello" ? "bg-brand-50 text-brand-800" : "bg-blue-50 text-blue-700")}><FileSpreadsheet size={18} /></span>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-[14px]">{c.tipo === "modello" ? "Elenco delle domande da fare" : "Domande fatte"} <span className="text-ink-400 font-normal">· {c.righe} righe</span></div>
@@ -191,6 +245,14 @@ export function PraticaDettaglioPage() {
         </div>
       )}
 
+      <BarraAzioni n={selezione.n} nome={selezione.n === 1 ? "selezionata" : "selezionate"} onClear={selezione.svuota} azioni={[
+        { label: "Cambia stato", icon: <Send size={16} />, menu: (["R", "S", "C", "N"] as StatoDomanda[]).map((st) => ({ label: st === "R" ? "Fatta (rilasciata)" : st === "N" ? "Da fare" : STATI[st].label, dot: STATI[st].color, onClick: () => cambiaStato(st) })) },
+        { label: "Esporta", icon: <Download size={16} />, onClick: () => esporta(selezione.ids) },
+        { label: "Togli", icon: <UserMinus size={16} />, tone: "muted", menu: [
+          { label: "Togli dall'elenco", onClick: () => togliSel(false) },
+          { label: "Escludi dalla pratica", onClick: () => togliSel(true) },
+        ] },
+      ]} />
       {carica && <CaricaElenco open={!!carica} onClose={chiudiCaricamento} pratica={p} tipo={carica} />}
       <PraticaEditor value={edit ? p : null} onClose={() => setEdit(false)} />
       <ConfrontoBando open={confronto} onClose={() => setConfronto(false)} pratica={confronto ? p : null} />

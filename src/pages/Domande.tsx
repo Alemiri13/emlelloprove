@@ -1,12 +1,14 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { FileSpreadsheet, Ban, CalendarClock, Check, ChevronDown, ClipboardList, Download, PenLine, Plus, Printer, Send, Undo2, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { FileSpreadsheet, Ban, CalendarClock, Check, ChevronDown, ClipboardList, Download, PenLine, Plus, Printer, Send, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { abbinate, ESITI, ORDINE_STATI, STATI } from "../lib/domain";
 import { daysFromToday, fmtDate, litri, normalizeSearch, relDays, titleCase } from "../lib/format";
-import { useAbbina, useSalvaDomanda, useStatoMultiplo } from "../lib/queries";
+import { useSalvaDomanda, useStatoMultiplo, useTogliDaPratica } from "../lib/queries";
+import { BarraAzioni } from "../components/ui/Bulk";
+import { esportaExcel } from "../lib/esporta";
 import { Button } from "../components/ui/Button";
 import { Checkbox, SearchInput } from "../components/ui/Inputs";
 import { Select } from "../components/ui/Select";
@@ -76,18 +78,11 @@ export function DomandePage() {
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allSel = filtrate.length > 0 && filtrate.every((r) => sel.has(r.a.id));
 
-  const exportCsv = () => {
+  const exportCsv = (ids?: string[]) => {
     if (!pratica) return;
-    const rows = [["CUAA", "Denominazione", "Stato", "Numero", "Data", "Esito", "Litri assegnati"]];
-    filtrate.forEach(({ a, d }) => rows.push([
-      a.cuaa, a.denominazione, STATI[d?.stato ?? "N"].label, d?.numero ?? "", d?.data_presentazione ? fmtDate(d.data_presentazione) : "",
-      d?.stato === "R" ? ESITI[d.esito].label : "", String(d?.litri_assegnati ?? ""),
-    ]));
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
-    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
-    const el = document.createElement("a");
-    el.href = url; el.download = `${pratica.codice ?? pratica.id}_${ufficio.id}.csv`; el.click();
-    URL.revokeObjectURL(url);
+    const sorgente = ids ? righe.filter((r) => ids.includes(r.a.id)) : filtrate;
+    esportaExcel(`${pratica.codice ?? pratica.id}_${ufficio.id}`, ["CUAA", "Denominazione", "Stato", "Numero", "Data", "Esito", "Litri assegnati"],
+      sorgente.map(({ a, d }) => [a.cuaa, a.denominazione, STATI[d?.stato ?? "N"].label, d?.numero, d?.data_presentazione ? fmtDate(d.data_presentazione) : "", d?.stato === "R" ? ESITI[d.esito].label : "", d?.litri_assegnati]));
   };
 
   if (!loading && attive.length === 0) {
@@ -220,7 +215,7 @@ export function DomandePage() {
                 className="min-w-0 lg:w-56"
                 options={(["I", "A", "P", "X"] as Esito[]).map((e) => ({ value: e, label: `${ESITI[e].label} (${esitiCount[e]})`, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: ESITI[e].color }} /> }))}
               />
-              <Button variant="secondary" size="icon" className="!h-14 !w-14 !rounded-2xl shrink-0" onClick={exportCsv} title="Esporta CSV"><Download size={19} /></Button>
+              <Button variant="secondary" size="icon" className="!h-14 !w-14 !rounded-2xl shrink-0" onClick={() => exportCsv()} title="Esporta Excel"><Download size={19} /></Button>
             </div>
           </div>
 
@@ -247,7 +242,7 @@ export function DomandePage() {
             )}
           </div>
 
-          <BulkBar sel={sel} clear={() => setSel(new Set())} pratica={pratica} />
+          <BulkBar sel={sel} clear={() => setSel(new Set())} pratica={pratica} onEsporta={(ids) => exportCsv(ids)} />
         </>
       )}
     </div>
@@ -334,45 +329,32 @@ function QuickStato({ a, p, stato }: { a: Azienda; p: Pratica; stato: StatoDoman
   );
 }
 
-function BulkBar({ sel, clear, pratica }: { sel: Set<string>; clear: () => void; pratica: Pratica }) {
+function BulkBar({ sel, clear, pratica, onEsporta }: { sel: Set<string>; clear: () => void; pratica: Pratica; onEsporta: (ids: string[]) => void }) {
   const multi = useStatoMultiplo();
-  const abb = useAbbina();
+  const togli = useTogliDaPratica();
   const { toast, confirm } = useFeedback();
   const ids = [...sel];
   const run = async (s: StatoDomanda) => {
-    if (s === "N" && !(await confirm({ title: `Riportare ${ids.length} aziende a «Non fatta»?`, message: "Le domande selezionate verranno rimosse con i loro dati.", danger: true, confirmLabel: "Conferma" }))) return;
+    if (s === "N" && !(await confirm({ title: `Riportare ${ids.length} aziende a «da fare»?`, message: "Le domande selezionate verranno rimosse con i loro dati.", danger: true, confirmLabel: "Conferma" }))) return;
     try { await multi.mutateAsync({ pratica_id: pratica.id, aziende: ids, stato: s }); toast("success", `${ids.length} domande aggiornate`, STATI[s].label); clear(); }
     catch (e) { toast("error", "Errore", (e as Error).message); }
   };
-  const escludi = async () => {
-    if (!(await confirm({ title: `Escludere ${ids.length} aziende da ${pratica.nome}?`, message: "Non compariranno più tra le aziende da seguire per questa pratica (le domande già avviate restano).", confirmLabel: "Escludi" }))) return;
-    await abb.mutateAsync({ pratica_id: pratica.id, aziende: ids, tipo: "escluso" });
-    toast("info", "Aziende escluse dalla pratica");
+  const togliSel = async (escludi: boolean) => {
+    if (!(await confirm({ title: `Togliere ${ids.length} aziende da ${pratica.nome}?`, message: escludi ? "Le loro domande vengono eliminate e restano escluse dalla pratica." : "Le loro domande vengono eliminate e le aziende escono dall'elenco delle domande da fare.", danger: true, confirmLabel: "Togli" }))) return;
+    await togli.mutateAsync({ pratica_id: pratica.id, aziende: ids, escludi });
+    toast("success", `${ids.length} aziende tolte dalla pratica`);
     clear();
   };
   return (
-    <AnimatePresence>
-      {sel.size > 0 && (
-        <motion.div
-          initial={{ y: 100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 100, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 420, damping: 34 }}
-          className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 lg:ml-[132px] z-40 bg-ink-900 text-white rounded-[22px] shadow-pop pl-5 pr-2 py-2 flex items-center gap-2 max-w-[calc(100vw-24px)] overflow-x-auto"
-        >
-          <span className="font-bold text-[14px] whitespace-nowrap pr-2">{sel.size} selezionate</span>
-          <span className="h-6 w-px bg-white/15" />
-          {(["C", "S", "R"] as StatoDomanda[]).map((s) => (
-            <button key={s} disabled={multi.isPending} onClick={() => run(s)} className="h-11 px-3.5 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 hover:bg-white/10 transition whitespace-nowrap">
-              <span className="h-2 w-2 rounded-full" style={{ background: STATI[s].color }} />{STATI[s].label}
-            </button>
-          ))}
-          <button onClick={() => run("N")} className="h-11 px-3.5 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 hover:bg-white/10 transition whitespace-nowrap"><Undo2 size={15} /> Non fatta</button>
-          <button onClick={escludi} className="h-11 px-3.5 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 hover:bg-white/10 transition whitespace-nowrap text-white/70"><Ban size={15} /> Escludi</button>
-          <button onClick={clear} className="h-11 w-11 rounded-xl grid place-items-center hover:bg-white/10 transition shrink-0" aria-label="Deseleziona"><X size={18} /></button>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <BarraAzioni n={sel.size} nome={sel.size === 1 ? "selezionata" : "selezionate"} onClear={clear} azioni={[
+      ...(["R", "S", "C"] as StatoDomanda[]).map((s) => ({ label: s === "R" ? "Fatta" : STATI[s].label, icon: <span className="h-2 w-2 rounded-full" style={{ background: STATI[s].color }} />, onClick: () => run(s) })),
+      { label: "Da fare", icon: <Undo2 size={15} />, onClick: () => run("N") },
+      { label: "Esporta", icon: <Download size={15} />, onClick: () => onEsporta(ids) },
+      { label: "Togli", icon: <Ban size={15} />, tone: "muted" as const, menu: [
+        { label: "Togli dall'elenco", onClick: () => togliSel(false) },
+        { label: "Escludi dalla pratica", onClick: () => togliSel(true) },
+      ] },
+    ]} />
   );
 }
 

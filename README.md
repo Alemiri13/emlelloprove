@@ -43,6 +43,17 @@ Il motore è in `src/lib/analisi/`; le prove con dati fittizi si lanciano con `n
 
 Importi, pagamenti e quota servizio non fanno parte del gestionale.
 
+## Filtri e azioni multiple
+
+Ogni elenco ha ricerca, filtri, «seleziona tutti» ed esportazione in Excel; la selezione apre una barra di azioni:
+
+- **Anagrafica**: filtri per tipo, requisiti, coltura, comune, situazione (con/senza domande, senza SAU, senza colture, senza contatti). Azioni: esporta, imposta biologico/IAP/UMA, aggiungi a una pratica, copia o sposta in un altro ufficio, elimina (anche da tutti gli uffici).
+- **Pratiche e bandi**: filtri per tipo, attive, senza elenco, in scadenza, scadute. Azioni: attiva, disattiva, esporta, elimina.
+- **Pagina della pratica**: filtro per stato; azioni: cambia stato, esporta, togli dall'elenco o escludi; storico dei caricamenti eliminabile (eliminando l'elenco «da fare» la pratica torna ai requisiti automatici).
+- **Domande**: cambia stato, esporta, togli dall'elenco o escludi.
+- **Da fare**: ricerca, cambia stato anche su pratiche diverse, esporta.
+- **Colture** e **documenti** dell'azienda: elimina ed esporta in blocco.
+
 ## Riconoscimento degli Excel
 
 `src/lib/excel.ts`: trova da solo il foglio giusto e la riga d'intestazione (anche dopo righe di titolo, su due righe con celle unite, o assente), profila il contenuto di ogni colonna (codici fiscali con carattere di controllo, partite IVA anche senza gli zeri iniziali tolti da Excel, date, stati, esiti, nominativi, codici, sì/no, email, PEC, telefoni…), confronta le intestazioni con un dizionario di sinonimi con espansione delle abbreviazioni e tolleranza agli errori di battitura, e assegna ogni campo alla colonna migliore con una confidenza e una spiegazione. Gestisce cognome e nome in colonne separate, righe di totale e colonne vuote. Le prove (`npm run test:analisi`) coprono questi casi.

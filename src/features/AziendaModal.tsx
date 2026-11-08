@@ -9,12 +9,12 @@ import { eta } from "../lib/cf";
 import { eur, fileSize, fmtDate, fmtDateLong, fmtDateTime, ha, litri, relDays, daysFromToday, titleCase } from "../lib/format";
 import { abbinate, CATEGORIE_DOC, KIT, statoDocumento } from "../lib/domain";
 import {
-  apriDocumento, useAbbina, useDocumenti, useEliminaAzienda, useEliminaDocumento, useRimuoviColturaAzienda, useSalvaAzienda, useSalvaColturaAzienda, useStorico, type AziendaInput,
+  apriDocumento, useAbbina, useEliminaDocumenti, useDocumenti, useEliminaAzienda, useEliminaDocumento, useRimuoviColturaAzienda, useSalvaAzienda, useSalvaColturaAzienda, useStorico, type AziendaInput,
 } from "../lib/queries";
 import { Modal } from "../components/ui/Modal";
 import { Avatar, Badge, Empty, EsitoPill, InfoRow, SectionTitle, StatoPill, Tabs } from "../components/ui/Misc";
 import { Button } from "../components/ui/Button";
-import { CheckIcon, Field, NumberInput, TextArea, TextInput, ToggleCard } from "../components/ui/Inputs";
+import { Checkbox, CheckIcon, Field, NumberInput, TextArea, TextInput, ToggleCard } from "../components/ui/Inputs";
 import { Select } from "../components/ui/Select";
 import { DatePicker } from "../components/ui/DatePicker";
 import { useFeedback } from "../components/ui/Feedback";
@@ -22,6 +22,7 @@ import { Skeleton } from "../components/ui/Spinner";
 import { DocumentoModal } from "./DocumentoModal";
 import { CaricamentoIntelligente } from "./CaricamentoIntelligente";
 import { DocumentoPreview } from "./DocumentoPreview";
+import { SelezionaTutti, useSelezione } from "../components/ui/Bulk";
 import type { Azienda, Documento } from "../lib/types";
 
 type Tab = "scheda" | "colture" | "domande" | "documenti" | "storico";
@@ -361,6 +362,8 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
   const [upload, setUpload] = useState(false);
   const [smart, setSmart] = useState(false);
   const [preview, setPreview] = useState<Documento | null>(null);
+  const selDoc = useSelezione(a.id);
+  const eliminaMolti = useEliminaDocumenti();
   const elimina = useEliminaDocumento();
   const { toast, confirm } = useFeedback();
   const kit = KIT.filter((k) => !k.soloPG || a.tipo === "PG").map((k) => ({ ...k, ok: (docs ?? []).some(k.t) }));
@@ -397,11 +400,18 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
           <div className="card"><Empty icon={<FileText size={26} />} title="Nessun documento" desc="Carica documenti d'identità, titoli di conduzione, visure e altro." action={<Button variant="soft" icon={<Sparkles size={16} />} onClick={() => setSmart(true)}>Carica e riconosci</Button>} /></div>
         ) : (
           <div className="card divide-y divide-ink-100">
+            <div className="px-5 h-11 flex items-center gap-3 bg-ink-50/60">
+              <SelezionaTutti ids={docs.map((d) => d.id)} sel={selDoc.sel} onChange={selDoc.imposta} etichetta={selDoc.n ? `${selDoc.n} selezionati` : `${docs.length} documenti`} />
+              <div className="flex-1" />
+              {selDoc.n > 0 && <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" icon={<Trash2 size={14} />} loading={eliminaMolti.isPending}
+                onClick={async () => { if (await confirm({ title: `Eliminare ${selDoc.n} documenti?`, message: "Vengono eliminati anche i file archiviati.", danger: true, confirmLabel: "Elimina" })) { await eliminaMolti.mutateAsync(docs.filter((d) => selDoc.sel.has(d.id))); toast("success", "Documenti eliminati"); selDoc.svuota(); } }}>Elimina</Button>}
+            </div>
             {docs.map((d) => {
               const st = statoDocumento(d);
               const cat = CATEGORIE_DOC.find((c) => c.k === d.categoria);
               return (
-                <div key={d.id} onClick={() => setPreview(d)} className="flex items-center gap-4 px-5 py-4 group cursor-pointer hover:bg-ink-50/70 transition-colors">
+                <div key={d.id} onClick={() => setPreview(d)} className={clsx("flex items-center gap-4 px-5 py-4 group cursor-pointer transition-colors", selDoc.sel.has(d.id) ? "bg-brand-50/60" : "hover:bg-ink-50/70")}>
+                  <span onClick={(e) => e.stopPropagation()}><Checkbox checked={selDoc.sel.has(d.id)} onChange={(v) => selDoc.toggle(d.id, v)} /></span>
                   <span className="h-11 w-11 rounded-xl bg-brand-50 text-brand-800 grid place-items-center shrink-0 group-hover:bg-brand-700 group-hover:text-white transition-colors"><FileText size={20} /></span>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate group-hover:text-brand-900">{d.titolo}</div>

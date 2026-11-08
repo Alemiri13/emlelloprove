@@ -362,3 +362,131 @@ export async function scaricaDocumento(d: Documento): Promise<Blob> {
   if (error) throw new Error(error.message);
   return data;
 }
+
+// =====================================================================
+// Operazioni in blocco
+// =====================================================================
+async function aBlocchi<T>(ids: T[], fn: (parte: T[]) => Promise<void>, dim = 200) {
+  for (let i = 0; i < ids.length; i += dim) await fn(ids.slice(i, i + dim));
+}
+
+/** Aggiorna gli stessi campi su più aziende. */
+export function useAggiornaAziende() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, campi }: { ids: string[]; campi: Partial<Azienda> }) => {
+      await aBlocchi(ids, async (p) => { check(await supabase.from("aziende").update(campi).in("id", p)); });
+    },
+    onSuccess: () => inv("aziende", "storico"),
+  });
+}
+
+/** Copia (o sposta) aziende in un altro ufficio. Spostando, domande e documenti seguono l'azienda. */
+export function useTrasferisciAziende() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, ufficio, sposta }: { ids: string[]; ufficio: string; sposta: boolean }) => {
+      const righe = await tutte<Azienda>((a, b) => supabase.from("aziende").select("*, azienda_colture(*)").in("id", ids.slice(0, 1000)).order("id").range(a, b));
+      const gia = new Set((await tutte<{ cuaa: string }>((a, b) => supabase.from("aziende").select("cuaa").eq("ufficio_id", ufficio).order("id").range(a, b))).map((x) => x.cuaa));
+      const libere = righe.filter((r) => !gia.has(r.cuaa));
+      if (sposta) {
+        await aBlocchi(libere.map((r) => r.id), async (p) => { check(await supabase.from("aziende").update({ ufficio_id: ufficio }).in("id", p)); });
+      } else if (libere.length) {
+        const nuove = libere.map(({ id: _id, tipo: _t, created_at: _c, updated_at: _u, azienda_colture: _ac, ...r }) => ({ ...r, ufficio_id: ufficio }));
+        const ins = [] as { id: string; cuaa: string }[];
+        await aBlocchi(nuove, async (p) => { ins.push(...(check(await supabase.from("aziende").insert(p).select("id, cuaa")) as { id: string; cuaa: string }[])); });
+        const idNuovo = new Map(ins.map((x) => [x.cuaa, x.id]));
+        const colture = libere.flatMap((r) => (r.azienda_colture ?? []).map((c) => ({ azienda_id: idNuovo.get(r.cuaa), coltura_id: c.coltura_id, superficie_ha: c.superficie_ha, varieta: c.varieta })));
+        await aBlocchi(colture, async (p) => { check(await supabase.from("azienda_colture").insert(p)); });
+      }
+      return { fatte: libere.length, saltate: righe.length - libere.length };
+    },
+    onSuccess: () => inv("aziende", "domande", "riepilogo-uffici"),
+  });
+}
+
+/** Attiva / disattiva più pratiche. */
+export function useAttivaPratiche() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, attivo }: { ids: string[]; attivo: boolean }) => { check(await supabase.from("pratiche").update({ attivo }).in("id", ids)); },
+    onSuccess: () => inv("pratiche"),
+  });
+}
+
+/** Elimina più pratiche (con le loro domande, in tutti gli uffici). */
+export function useEliminaPratiche() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (ids: string[]) => { check(await supabase.from("pratiche").delete().in("id", ids)); },
+    onSuccess: () => inv("pratiche", "domande", "abbinamenti", "caricamenti", "riepilogo-uffici"),
+  });
+}
+
+/** Toglie aziende da una pratica: elimina le domande e le toglie dall'elenco «da fare». */
+export function useTogliDaPratica() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ pratica_id, aziende, escludi }: { pratica_id: string; aziende: string[]; escludi?: boolean }) => {
+      await aBlocchi(aziende, async (p) => {
+        check(await supabase.from("domande").delete().eq("pratica_id", pratica_id).in("azienda_id", p));
+        if (escludi) check(await supabase.from("pratica_abbinamenti").upsert(p.map((azienda_id) => ({ pratica_id, azienda_id, tipo: "escluso" })), { onConflict: "pratica_id,azienda_id" }));
+        else check(await supabase.from("pratica_abbinamenti").delete().eq("pratica_id", pratica_id).in("azienda_id", p));
+      });
+    },
+    onSuccess: () => inv("domande", "abbinamenti", "riepilogo-uffici", "storico"),
+  });
+}
+
+/** Elimina caricamenti dallo storico. Eliminando l'elenco «da fare» la pratica torna ai requisiti automatici. */
+export function useEliminaCaricamenti() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, svuotaElenco }: { ids: string[]; svuotaElenco?: { pratica_id: string; aziende: string[] } }) => {
+      check(await supabase.from("pratica_caricamenti").delete().in("id", ids));
+      if (svuotaElenco) await aBlocchi(svuotaElenco.aziende, async (p) => {
+        check(await supabase.from("pratica_abbinamenti").delete().eq("pratica_id", svuotaElenco.pratica_id).eq("tipo", "incluso").in("azienda_id", p));
+      });
+    },
+    onSuccess: () => inv("caricamenti", "abbinamenti"),
+  });
+}
+
+/** Stato per più domande anche di pratiche diverse. */
+export function useStatoMisto() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ voci, stato }: { voci: { azienda_id: string; pratica_id: string }[]; stato: "C" | "S" | "R" | "N" }) => {
+      await aBlocchi(voci, async (p) => {
+        if (stato === "N") {
+          for (const v of p) check(await supabase.from("domande").delete().eq("pratica_id", v.pratica_id).eq("azienda_id", v.azienda_id));
+        } else check(await supabase.from("domande").upsert(p.map((v) => ({ ...v, stato })), { onConflict: "azienda_id,pratica_id" }));
+      });
+    },
+    onSuccess: () => inv("domande", "riepilogo-uffici", "storico"),
+  });
+}
+
+export function useEliminaColture() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await supabase.from("colture").delete().in("id", ids);
+      if (res.error?.code === "23503") throw new Error("Alcune colture sono usate da aziende: toglile prima da loro.");
+      check(res);
+    },
+    onSuccess: () => inv("colture"),
+  });
+}
+
+export function useEliminaDocumenti() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async (docs: Documento[]) => {
+      const paths = docs.map((d) => d.storage_path).filter((x): x is string => !!x);
+      if (paths.length) await supabase.storage.from("documenti").remove(paths);
+      check(await supabase.from("documenti").delete().in("id", docs.map((d) => d.id)));
+    },
+    onSuccess: () => inv("documenti", "storico"),
+  });
+}

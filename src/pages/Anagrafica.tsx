@@ -1,7 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { CaricamentoIntelligente } from "../features/CaricamentoIntelligente";
 import { ImportAziende } from "../features/import/ImportAziende";
-import { FileSpreadsheet, Trash2, X, Sparkles, ArrowDownAZ, Building2, ChevronRight, Leaf, Plus, Tractor, User, Users } from "lucide-react";
+import { FileSpreadsheet, Trash2, Sparkles, ArrowDownAZ, Building2, ChevronRight, Leaf, Plus, Tractor, User, Users, Download, SlidersHorizontal, ArrowRightLeft, ClipboardPlus, MapPin, Filter, BadgeCheck, RotateCcw } from "lucide-react";
+import { BarraAzioni, useSelezione } from "../components/ui/Bulk";
+import { esportaExcel } from "../lib/esporta";
+import { fmtDate } from "../lib/format";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
@@ -12,7 +15,7 @@ import { Button } from "../components/ui/Button";
 import { Checkbox, SearchInput, Toggle } from "../components/ui/Inputs";
 import { Modal } from "../components/ui/Modal";
 import { useFeedback } from "../components/ui/Feedback";
-import { useEliminaAziende } from "../lib/queries";
+import { useAbbina, useAggiornaAziende, useEliminaAziende, useTrasferisciAziende } from "../lib/queries";
 import { Segmented } from "../components/ui/Segmented";
 import { Select } from "../components/ui/Select";
 import { Avatar, Badge, Empty } from "../components/ui/Misc";
@@ -21,6 +24,7 @@ import type { Azienda } from "../lib/types";
 
 type Filtro = "tutte" | "PF" | "PG" | "bio" | "iap" | "uma";
 type Ordine = "nome" | "sau" | "recenti" | "eta";
+type Situazione = "tutte" | "con_domande" | "senza_domande" | "senza_sau" | "senza_colture" | "senza_contatti";
 
 export function AnagraficaPage() {
   const { aziende, colturaById, domande, pratiche, loading, ufficio } = useUfficio();
@@ -32,9 +36,16 @@ export function AnagraficaPage() {
   const [limit, setLimit] = useState(60);
   const [smart, setSmart] = useState(false);
   const [importa, setImporta] = useState(false);
-  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [comune, setComune] = useState<string | null>(null);
+  const [situazione, setSituazione] = useState<Situazione>("tutte");
+  const selezione = useSelezione(ufficio.id);
+  const { sel } = selezione;
   const [conferma, setConferma] = useState(false);
-  useEffect(() => setSel(new Set()), [ufficio.id]);
+  const [versoPratica, setVersoPratica] = useState(false);
+  const { uffici } = useUfficio();
+  const aggiorna = useAggiornaAziende();
+  const trasferisci = useTrasferisciAziende();
+  const { toast, confirm } = useFeedback();
 
   const domByAz = useMemo(() => {
     const m = new Map<string, typeof domande>();
@@ -60,6 +71,12 @@ export function AnagraficaPage() {
       if (filtro === "iap" && !a.iap) return false;
       if (filtro === "uma" && !a.uma) return false;
       if (coltura && !a.azienda_colture?.some((c) => c.coltura_id === coltura)) return false;
+      if (comune && (a.comune ?? "—") !== comune) return false;
+      if (situazione === "con_domande" && !domByAz.get(a.id)?.length) return false;
+      if (situazione === "senza_domande" && domByAz.get(a.id)?.length) return false;
+      if (situazione === "senza_sau" && a.sau_ha != null) return false;
+      if (situazione === "senza_colture" && a.azienda_colture?.length) return false;
+      if (situazione === "senza_contatti" && (a.telefono || a.email || a.pec)) return false;
       if (n && !normalizeSearch(`${a.denominazione} ${a.cuaa} ${a.comune ?? ""} ${a.telefono ?? ""}`).includes(n)) return false;
       return true;
     });
@@ -70,7 +87,33 @@ export function AnagraficaPage() {
       return a.denominazione.localeCompare(b.denominazione, "it");
     });
     return l;
-  }, [aziende, q, filtro, ordine, coltura]);
+  }, [aziende, q, filtro, ordine, coltura, comune, situazione, domByAz]);
+
+  const comuni = useMemo(() => {
+    const m = new Map<string, number>();
+    aziende.forEach((a) => m.set(a.comune ?? "—", (m.get(a.comune ?? "—") ?? 0) + 1));
+    return [...m].sort((x, y) => x[0].localeCompare(y[0], "it"));
+  }, [aziende]);
+  const filtriAttivi = !!(q || coltura || comune || situazione !== "tutte" || filtro !== "tutte");
+  const azzera = () => { setQ(""); setColtura(null); setComune(null); setSituazione("tutte"); setFiltro("tutte"); };
+
+  const esporta = (ids?: string[]) => {
+    const l = ids ? aziende.filter((a) => ids.includes(a.id)) : list;
+    esportaExcel(`aziende_${ufficio.id}`, ["CUAA", "Denominazione", "Tipo", "Data di nascita", "Comune", "Indirizzo", "CAP", "Telefono", "Email", "PEC", "SAU (ha)", "Colture", "Biologico", "IAP", "UMA", "Note"],
+      l.map((a) => [a.cuaa, a.denominazione, a.tipo === "PF" ? "Persona fisica" : "Società", a.data_nascita ? fmtDate(a.data_nascita) : "", a.comune, a.indirizzo, a.cap, a.telefono, a.email, a.pec, a.sau_ha,
+        (a.azienda_colture ?? []).map((c) => colturaById.get(c.coltura_id)?.nome).filter(Boolean).join("; "), a.biologico ? "SI" : "NO", a.iap ? "SI" : "NO", a.uma ? "SI" : "NO", a.note]));
+  };
+  const imposta = async (campo: "biologico" | "iap" | "uma", v: boolean) => {
+    await aggiorna.mutateAsync({ ids: selezione.ids, campi: { [campo]: v } });
+    toast("success", `${selezione.n} aziende aggiornate`);
+  };
+  const trasferimento = async (ufficioDest: string, sposta: boolean) => {
+    const nome = uffici.find((u) => u.id === ufficioDest)?.nome;
+    if (sposta && !(await confirm({ title: `Spostare ${selezione.n} aziende a ${nome}?`, message: "Lasciano l'ufficio di " + ufficio.nome + " insieme a domande e documenti. Quelle già presenti a " + nome + " vengono saltate.", confirmLabel: "Sposta" }))) return;
+    const r = await trasferisci.mutateAsync({ ids: selezione.ids, ufficio: ufficioDest, sposta });
+    toast("success", `${r.fatte} aziende ${sposta ? "spostate" : "copiate"} a ${nome}`, r.saltate ? `${r.saltate} erano già presenti` : undefined);
+    selezione.svuota();
+  };
 
   const coltureUsate = useMemo(() => {
     const s = new Set<string>();
@@ -92,9 +135,9 @@ export function AnagraficaPage() {
         }
       />
 
-      <div className="flex flex-col xl:flex-row gap-3 mb-4">
-        <SearchInput value={q} onChange={(v) => { setQ(v); setLimit(60); }} placeholder="Cerca per nome, CUAA o comune…" size="lg" className="flex-1" shortcut />
-        <div className="grid grid-cols-2 xl:flex gap-3">
+      <div className="flex flex-col gap-3 mb-4">
+        <SearchInput value={q} onChange={(v) => { setQ(v); setLimit(60); }} placeholder="Cerca per nome, CUAA o comune…" size="lg" shortcut />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Select
             value={coltura}
             onChange={setColtura}
@@ -103,15 +146,41 @@ export function AnagraficaPage() {
             placeholder="Tutte le colture"
             icon={<Leaf size={17} />}
             size="lg"
-            className="min-w-0 xl:w-60"
+            className="min-w-0"
             options={coltureUsate.map((c) => ({ value: c!.id, label: c!.nome, icon: <span className="h-3 w-3 rounded-full" style={{ background: c!.colore }} /> }))}
+          />
+          <Select
+            value={comune}
+            onChange={setComune}
+            clearable
+            onClear={() => setComune(null)}
+            placeholder="Tutti i comuni"
+            icon={<MapPin size={17} />}
+            size="lg"
+            className="min-w-0"
+            options={comuni.map(([c, n]) => ({ value: c, label: c === "—" ? "Comune non indicato" : c, hint: `${n} aziende` }))}
+          />
+          <Select
+            value={situazione}
+            onChange={setSituazione}
+            size="lg"
+            icon={<Filter size={17} />}
+            className="min-w-0"
+            options={[
+              { value: "tutte", label: "Qualsiasi situazione" },
+              { value: "con_domande", label: "Con almeno una domanda" },
+              { value: "senza_domande", label: "Senza domande" },
+              { value: "senza_sau", label: "Senza superficie (SAU)" },
+              { value: "senza_colture", label: "Senza colture" },
+              { value: "senza_contatti", label: "Senza contatti" },
+            ]}
           />
           <Select
             value={ordine}
             onChange={setOrdine}
             size="lg"
             icon={<ArrowDownAZ size={17} />}
-            className="min-w-0 xl:w-52"
+            className="min-w-0"
             options={[
               { value: "nome", label: "Per nome" },
               { value: "sau", label: "Per superficie" },
@@ -122,7 +191,7 @@ export function AnagraficaPage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto -mx-1 px-1 pb-1 mb-6">
+      <div className="flex items-center gap-3 overflow-x-auto -mx-1 px-1 pb-1 mb-6">
         <Segmented
           value={filtro}
           onChange={(v) => { setFiltro(v); setLimit(60); }}
@@ -135,6 +204,9 @@ export function AnagraficaPage() {
             { value: "uma", label: "Utenti UMA", count: counts.uma, icon: <Tractor size={14} /> },
           ]}
         />
+        <div className="flex-1" />
+        {filtriAttivi && <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={azzera}>Azzera filtri</Button>}
+        {list.length > 0 && <Button variant="secondary" size="sm" icon={<Download size={14} />} onClick={() => esporta()}>Esporta {list.length}</Button>}
       </div>
 
       {loading ? (
@@ -157,14 +229,14 @@ export function AnagraficaPage() {
         <>
           <div className="flex items-center gap-3 mb-3 pl-5">
             <Checkbox checked={list.length > 0 && list.every((a) => sel.has(a.id))} indeterminate={list.some((a) => sel.has(a.id)) && !list.every((a) => sel.has(a.id))}
-              onChange={(v) => setSel(v ? new Set(list.map((a) => a.id)) : new Set())} />
+              onChange={(v) => selezione.imposta(v ? list.map((a) => a.id) : [])} />
             <span className="text-[13px] text-ink-500 font-medium">{list.length} {list.length === 1 ? "azienda" : "aziende"}{sel.size > 0 && <> · <b className="text-brand-800">{sel.size} selezionate</b></>}</span>
           </div>
           <div className="space-y-2.5">
             <AnimatePresence initial={false}>
               {list.slice(0, limit).map((a, i) => (
                 <AziendaRow key={a.id} a={a} i={i} onClick={() => apriAzienda(a.id)} domande={domByAz.get(a.id) ?? []} pratiche={pratiche.length} colturaById={colturaById}
-                  selected={sel.has(a.id)} onSelect={(v) => setSel((x) => { const n = new Set(x); if (v) n.add(a.id); else n.delete(a.id); return n; })} />
+                  selected={sel.has(a.id)} onSelect={(v) => selezione.toggle(a.id, v)} />
               ))}
             </AnimatePresence>
           </div>
@@ -177,18 +249,25 @@ export function AnagraficaPage() {
       )}
       <CaricamentoIntelligente open={smart} onClose={() => setSmart(false)} />
       <ImportAziende open={importa} onClose={() => setImporta(false)} />
-      <AnimatePresence>
-        {sel.size > 0 && (
-          <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }} transition={{ type: "spring", stiffness: 420, damping: 34 }}
-            className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 lg:ml-[132px] z-40 bg-ink-900 text-white rounded-[22px] shadow-pop pl-5 pr-2 py-2 flex items-center gap-2">
-            <span className="font-bold text-[14px] whitespace-nowrap pr-2">{sel.size} selezionate</span>
-            <span className="h-6 w-px bg-white/15" />
-            <button onClick={() => setConferma(true)} className="h-11 px-4 rounded-xl text-[13.5px] font-semibold flex items-center gap-2 hover:bg-red-500/20 text-red-300 hover:text-red-200 transition whitespace-nowrap"><Trash2 size={16} /> Elimina</button>
-            <button onClick={() => setSel(new Set())} className="h-11 w-11 rounded-xl grid place-items-center hover:bg-white/10 transition" aria-label="Deseleziona"><X size={18} /></button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <EliminaAziende open={conferma} ids={[...sel]} onClose={() => setConferma(false)} onDone={() => { setConferma(false); setSel(new Set()); }} />
+      <BarraAzioni n={selezione.n} nome={selezione.n === 1 ? "selezionata" : "selezionate"} onClear={selezione.svuota} azioni={[
+        { label: "Esporta", icon: <Download size={16} />, onClick: () => esporta(selezione.ids) },
+        { label: "Imposta", icon: <SlidersHorizontal size={16} />, menu: [
+          { label: "Biologica: sì", icon: <Leaf size={15} />, onClick: () => imposta("biologico", true) },
+          { label: "Biologica: no", icon: <Leaf size={15} />, onClick: () => imposta("biologico", false) },
+          { label: "IAP / CD: sì", icon: <BadgeCheck size={15} />, onClick: () => imposta("iap", true) },
+          { label: "IAP / CD: no", icon: <BadgeCheck size={15} />, onClick: () => imposta("iap", false) },
+          { label: "Utente UMA: sì", icon: <Tractor size={15} />, onClick: () => imposta("uma", true) },
+          { label: "Utente UMA: no", icon: <Tractor size={15} />, onClick: () => imposta("uma", false) },
+        ] },
+        { label: "Aggiungi a pratica", icon: <ClipboardPlus size={16} />, onClick: () => setVersoPratica(true) },
+        { label: "Ufficio", icon: <ArrowRightLeft size={16} />, menu: uffici.filter((u) => u.id !== ufficio.id).flatMap((u) => [
+          { label: `Copia a ${u.nome}`, onClick: () => trasferimento(u.id, false) },
+          { label: `Sposta a ${u.nome}`, onClick: () => trasferimento(u.id, true) },
+        ]) },
+        { label: "Elimina", icon: <Trash2 size={16} />, tone: "danger", onClick: () => setConferma(true) },
+      ]} />
+      <AggiungiAPratica open={versoPratica} ids={selezione.ids} onClose={() => setVersoPratica(false)} onDone={() => { setVersoPratica(false); selezione.svuota(); }} />
+      <EliminaAziende open={conferma} ids={selezione.ids} onClose={() => setConferma(false)} onDone={() => { setConferma(false); selezione.svuota(); }} />
     </div>
   );
 }
@@ -295,6 +374,26 @@ function EliminaAziende({ open, ids, onClose, onDone }: { open: boolean; ids: st
           <span className="text-[13.5px]"><b>Elimina anche dagli uffici di {altri}</b><span className="block text-ink-500 text-[12px]">Altrimenti solo dall'ufficio di {ufficio.nome}</span></span>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+function AggiungiAPratica({ open, ids, onClose, onDone }: { open: boolean; ids: string[]; onClose: () => void; onDone: () => void }) {
+  const { pratiche } = useUfficio();
+  const abb = useAbbina();
+  const { toast } = useFeedback();
+  const [pid, setPid] = useState<string | null>(null);
+  useEffect(() => { if (open) setPid(null); }, [open]);
+  const vai = async () => {
+    if (!pid) return;
+    await abb.mutateAsync({ pratica_id: pid, aziende: ids, tipo: "incluso" });
+    toast("success", `${ids.length} aziende aggiunte`, pratiche.find((p) => p.id === pid)?.nome);
+    onDone();
+  };
+  return (
+    <Modal open={open} onClose={onClose} size="sm" title="Aggiungi a una pratica" subtitle={`${ids.length} aziende entrano nell'elenco delle domande da fare`} icon={<ClipboardPlus size={22} />}
+      footer={<><div className="flex-1" /><Button variant="secondary" onClick={onClose}>Annulla</Button><Button disabled={!pid} loading={abb.isPending} onClick={vai}>Aggiungi</Button></>}>
+      <Select value={pid} onChange={setPid} placeholder="Scegli la pratica…" searchable options={pratiche.map((p) => ({ value: p.id, label: p.nome, hint: p.codice ?? undefined }))} />
     </Modal>
   );
 }
