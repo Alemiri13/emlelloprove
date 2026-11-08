@@ -15,7 +15,7 @@ import {
 } from "../../lib/excel";
 import { useAggiungiVoci, useCaricaFatte, useCaricaModello, type NuovoFile } from "../../lib/queries";
 import { chiaveCuaa, chiaveNome, riscontro, type Fonte } from "../../lib/riscontro";
-import type { Pratica, PraticaFile, RigaFile } from "../../lib/types";
+import type { Pratica, PraticaFile, RigaFile, StatoDomanda } from "../../lib/types";
 import { Avanzamento, Numero } from "../import/Comuni";
 import { NOME_STATO } from "./ElencoVoci";
 
@@ -85,9 +85,11 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const aggiungiVoci = useAggiungiVoci();
   const [step, setStep] = useState(0);
   const [files, setFiles] = useState<FileCaricato[]>([]);
-  const [statoDef, setStatoDef] = useState<"C" | "S" | "R">("R");
+  // righe senza stato riconoscibile: di base NON fatte (si cambia solo con una scelta esplicita)
+  const [statoDef, setStatoDef] = useState<StatoDomanda>("N");
   const [modo, setModo] = useState<"sostituisci" | "integra">("sostituisci");
-  const [usaStati, setUsaStati] = useState(true);
+  // l'elenco da fare parte sempre «non fatto»: lo stato scritto nel file si usa solo se lo attivi
+  const [usaStati, setUsaStati] = useState(false);
   const [lavoro, setLavoro] = useState<string | null>(null);
   const [fatto, setFatto] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -98,7 +100,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const precedente = miei.find((f) => f.tipo === "modello") ?? null;
   const vociPratica = useMemo(() => voci.filter((v) => v.pratica_id === pratica.id), [voci, pratica.id]);
 
-  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("R"); setModo("sostituisci"); setUsaStati(true); setLavoro(null); setFatto(false); } }, [open]);
+  useEffect(() => { if (open) { setStep(0); setFiles([]); setStatoDef("N"); setModo("sostituisci"); setUsaStati(false); setLavoro(null); setFatto(false); } }, [open]);
 
   const aggiungi = async (lista: FileList | File[]) => {
     const nuovi = [...lista].slice(0, isModello ? 1 : 20);
@@ -127,6 +129,8 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
 
   const validi = useMemo(() => files.filter((f) => f.analisi.length && !f.errore), [files]);
   const parsed = useMemo(() => (step >= 2 ? validi.map((f) => ({ f, ...righeDa(f) })) : []), [validi, step]);
+  // file delle fatte: lo stato scelto a mano vale solo per le righe senza stato; «non fatte» lascia la riga senza stato
+  const parsedFatte = useMemo(() => parsed.map((x) => ({ ...x, righe: statoDef === "N" ? x.righe : x.righe.map((r) => (r.stato ? r : { ...r, stato: statoDef })) })), [parsed, statoDef]);
 
   // ---------- anteprima: elenco da fare ----------
   const anteprimaModello = useMemo(() => {
@@ -142,7 +146,7 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
     const indizi = Object.entries(parsed[0].colonne).filter(([k]) => k === "stato" || k.startsWith("indizio_")).map(([, h]) => h);
     if (!usaStati) unici.forEach((r, i) => { unici[i] = { ...r, stato: null }; });
     const finte = unici.map((r, i) => ({ id: "x" + i, pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: null, cuaa: r.cuaa, denominazione: r.denominazione, extra: {}, stato_manuale: null, numero: null, data_presentazione: null, esito: null, motivi: [], riesame: null, note: r.note, ordine: i, created_at: "", updated_at: "", updated_by: null }));
-    const ris = miei.some((f) => f.tipo === "fatte") || (usaStati && conStato.length) ? riscontro(finte, [...miei.filter((f) => f.tipo === "fatte"), { id: "nuovo-modello", pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "modello", nome: parsed[0].f.file.name, righe: unici, colonne: parsed[0].colonne, stato_predefinito: "R", n_righe: unici.length, storage_path: null, created_at: new Date().toISOString(), created_by: null }]) : null;
+    const ris = miei.some((f) => f.tipo === "fatte") || (usaStati && conStato.length) ? riscontro(finte, [...miei.filter((f) => f.tipo === "fatte"), { id: "nuovo-modello", pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "modello", nome: parsed[0].f.file.name, righe: unici, colonne: { ...parsed[0].colonne, _usa_stati: "si" }, stato_predefinito: "R", n_righe: unici.length, storage_path: null, created_at: new Date().toISOString(), created_by: null }]) : null;
     return { unici, doppioni, senzaCuaa, nuoviDaIntegrare, ris, conStato: conStato.length, indizi };
   }, [isModello, parsed, vociPratica, miei, pratica.id, ufficio.id, usaStati]);
 
@@ -150,13 +154,13 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
   const anteprimaFatte = useMemo(() => {
     if (isModello || !parsed.length) return null;
     const ora = new Date().toISOString();
-    const nuovi: PraticaFile[] = parsed.map(({ f, righe, colonne }) => ({ id: "nuovo-" + f.id, pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "fatte", nome: f.file.name, righe, colonne, stato_predefinito: statoDef, n_righe: righe.length, storage_path: null, created_at: ora, created_by: null }));
+    const nuovi: PraticaFile[] = parsedFatte.map(({ f, righe, colonne }) => ({ id: "nuovo-" + f.id, pratica_id: pratica.id, ufficio_id: ufficio.id, tipo: "fatte", nome: f.file.name, righe, colonne, stato_predefinito: "R", n_righe: righe.length, storage_path: null, created_at: ora, created_by: null }));
     const prima = riscontro(vociPratica, miei);
     const dopo = riscontro(vociPratica, [...miei, ...nuovi]);
     const cambiano = dopo.voci.filter((v, i) => v.stato !== prima.voci[i].stato).length;
     const fuoriNuovi = dopo.fuori.filter((x) => x.file.id.startsWith("nuovo-"));
     return { nuovi, prima, dopo, cambiano, fuoriNuovi };
-  }, [isModello, parsed, statoDef, vociPratica, miei, pratica.id, ufficio.id]);
+  }, [isModello, parsed, parsedFatte, vociPratica, miei, pratica.id, ufficio.id]);
 
   const esegui = async () => {
     try {
@@ -167,12 +171,12 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
           await aggiungiVoci.mutateAsync(anteprimaModello.nuoviDaIntegrare.map((r, i) => ({ pratica_id: pratica.id, ufficio_id: ufficio.id, file_id: precedente.id, cuaa: r.cuaa, denominazione: r.denominazione, note: r.note, ordine: base + i })));
         } else {
           setLavoro("Salvo l'elenco delle domande da fare…");
-          const nuovo: NuovoFile = { file: parsed[0].f.file, righe: anteprimaModello.unici, colonne: parsed[0].colonne };
+          const nuovo: NuovoFile = { file: parsed[0].f.file, righe: anteprimaModello.unici, colonne: { ...parsed[0].colonne, ...(usaStati ? { _usa_stati: "si" } : {}) } };
           await caricaModello.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, nuovo, precedente });
         }
       } else if (!isModello) {
         setLavoro("Salvo i file e faccio il riscontro…");
-        await caricaFatte.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, stato_predefinito: statoDef, nuovi: parsed.map(({ f, righe, colonne }) => ({ file: f.file, righe, colonne })) });
+        await caricaFatte.mutateAsync({ pratica_id: pratica.id, ufficio_id: ufficio.id, nuovi: parsedFatte.map(({ f, righe, colonne }) => ({ file: f.file, righe, colonne })) });
       }
       setFatto(true);
     } catch (e) { toast("error", "Caricamento non riuscito", (e as Error).message); }
@@ -218,10 +222,10 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
         ))}
         {!isModello && (
           <div>
-            <span className="label">Cosa contengono questi file?</span>
-            <p className="text-[13px] text-ink-500 -mt-1 mb-3">Vale per le righe senza uno stato riconoscibile{validi.some((f) => f.analisi[f.scelta].mappa.stato) ? " (dove c'è la colonna «stato» uso quella)" : ""}.</p>
-            <div className="grid sm:grid-cols-3 gap-2.5">
-              {([["R", <Send size={18} key="r" />], ["S", <Printer size={18} key="s" />], ["C", <PenLine size={18} key="c" />]] as const).map(([k, ic]) => (
+            <span className="label">Righe senza uno stato riconoscibile</span>
+            <p className="text-[13px] text-ink-500 -mt-1 mb-3">Lo stato lo prendo dalla colonna «stato», dalle colonne come «Data stampa» o «Data rilascio» e dalle scritte nelle celle. Le righe dove non trovo niente restano <b>non fatte</b>, a meno che tu non scelga qui cosa contiene il file.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {([["N", <CircleDashed size={18} key="n" />], ["R", <Send size={18} key="r" />], ["S", <Printer size={18} key="s" />], ["C", <PenLine size={18} key="c" />]] as const).map(([k, ic]) => (
                 <ChoiceCard key={k} selected={statoDef === k} onClick={() => setStatoDef(k)} icon={ic} title={NOME_STATO[k]} color={STATI[k].color} className="!p-3" />
               ))}
             </div>
@@ -252,12 +256,12 @@ export function CaricaElenco({ open, onClose, pratica, tipo }: { open: boolean; 
           <div onClick={() => setUsaStati((x) => !x)} className={clsx("flex items-center gap-4 rounded-2xl border-2 px-4 py-3.5 cursor-pointer transition-colors", usaStati ? "border-brand-300 bg-brand-50/50" : "border-ink-100")}>
             <Toggle checked={usaStati} onChange={setUsaStati} />
             <div className="flex-1">
-              <div className="font-bold text-[14.5px]">{m.conStato} righe hanno già uno stato nel file</div>
-              <div className="text-[13px] text-ink-500">Ricavato da: {m.indizi.map((h) => `«${h}»`).join(", ")}. {usaStati ? "Lo uso: le altre righe restano «non fatte»." : "Lo ignoro: tutte le righe partono «non fatte»."}</div>
+              <div className="font-bold text-[14.5px]">Usa lo stato scritto nel file ({m.conStato} righe)</div>
+              <div className="text-[13px] text-ink-500">Il file ha {m.indizi.map((h) => `«${h}»`).join(", ")}. {usaStati ? "Attivo: quelle righe prendono lo stato del file, le altre restano «non fatte»." : "Spento (consigliato): tutto l'elenco parte «non fatto», lo stato arriva dai file delle domande fatte."}</div>
             </div>
           </div>
         )}
-        {!m.conStato && <p className="text-[13px] text-ink-600 flex gap-2"><Check size={16} className="shrink-0 mt-0.5 text-brand-700" />Tutte le righe partono come <b>non fatte</b>: lo stato arriva dai file delle domande fatte che caricherai.</p>}
+        {(!m.conStato || !usaStati) && <p className="text-[13px] text-ink-600 flex gap-2"><Check size={16} className="shrink-0 mt-0.5 text-brand-700" />Tutte le righe partono come <b>non fatte</b>: lo stato arriva dai file delle domande fatte che caricherai.</p>}
         {m.ris && (
           <div className="rounded-2xl ring-1 ring-ink-100 p-4">
             <div className="text-[13px] font-semibold text-ink-600 mb-3">Dopo il caricamento risulterebbero:</div>

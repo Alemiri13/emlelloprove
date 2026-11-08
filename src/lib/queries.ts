@@ -541,10 +541,10 @@ export function useCaricaModello() {
 export function useCaricaFatte() {
   const inv = useInvalidate();
   return useMutation({
-    mutationFn: async ({ pratica_id, ufficio_id, nuovi, stato_predefinito }: { pratica_id: string; ufficio_id: string; nuovi: NuovoFile[]; stato_predefinito: "C" | "S" | "R" }) => {
+    mutationFn: async ({ pratica_id, ufficio_id, nuovi }: { pratica_id: string; ufficio_id: string; nuovi: NuovoFile[] }) => {
       for (const n of nuovi) {
         const storage_path = await caricaOriginale(n.file, pratica_id);
-        check(await supabase.from("pratica_file").insert({ pratica_id, ufficio_id, tipo: "fatte", nome: n.file.name, righe: n.righe, colonne: n.colonne, n_righe: n.righe.length, stato_predefinito, storage_path }));
+        check(await supabase.from("pratica_file").insert({ pratica_id, ufficio_id, tipo: "fatte", nome: n.file.name, righe: n.righe, colonne: n.colonne, n_righe: n.righe.length, storage_path }));
       }
     },
     onSuccess: () => inv("pratica-file"),

@@ -5,7 +5,7 @@ let ko = 0;
 const ok = (n: string, c: boolean, info = "") => { if (!c) { ko++; process.exitCode = 1; } console.log(c ? "OK  " : "FAIL", n, info); };
 const voce = (id: string, cuaa: string | null, den: string, extra: Partial<Voce> = {}): Voce => ({ id, pratica_id: "p", ufficio_id: "u", file_id: null, cuaa, denominazione: den, extra: {}, stato_manuale: null, numero: null, data_presentazione: null, esito: null, motivi: [], riesame: null, note: null, ordine: 0, created_at: "", updated_at: "", updated_by: null, ...extra });
 const riga = (cuaa: string | null, den: string | null, stato: RigaFile["stato"] = null, numero: string | null = null): RigaFile => ({ riga: 1, cuaa, denominazione: den, stato, numero, data: null, esito: null, note: null });
-const file = (id: string, righe: RigaFile[], def: "R" | "S" | "C" = "R", created_at = "2026-11-01"): PraticaFile => ({ id, pratica_id: "p", ufficio_id: "u", tipo: "fatte", nome: id, righe, colonne: {}, stato_predefinito: def, n_righe: righe.length, storage_path: null, created_at, created_by: null });
+const file = (id: string, righe: RigaFile[], def: "R" | "S" | "C" = "R", created_at = "2026-11-01"): PraticaFile => ({ id, pratica_id: "p", ufficio_id: "u", tipo: "fatte", nome: id, righe: righe.map((r) => (r.stato ? r : { ...r, stato: def })), colonne: {}, stato_predefinito: def, n_righe: righe.length, storage_path: null, created_at, created_by: null });
 
 const voci = [voce("1", "RSSMRA80A41E372Q", "ROSSI MARIA"), voce("2", "BNCLGU75C12I520K", "BIANCHI LUIGI"), voce("3", null, "VERDI GIUSEPPE"), voce("4", "00243570694", "COMUNE DI PROVA"), voce("5", "NRIFNC90E50E372S", "NERI FRANCESCA", { stato_manuale: "S" })];
 const fA = file("rilasciate", [riga("RSSMRA80A41E372Q", "ROSSI MARIA", null, "D-1"), riga("243570694", "COMUNE DI PROVA")]);
@@ -23,7 +23,9 @@ const r2 = riscontro(voci, [fB]);
 ok("eliminando un file si ricalcola", r2.voci.find((v) => v.voce.id === "1")!.stato === "S" && r2.voci.find((v) => v.voce.id === "4")!.stato === "N");
 
 // elenco da fare: righe senza stato restano non fatte, righe con stato indicato nel file contano
-const mod: PraticaFile = { ...file("modello", [riga("RSSMRA80A41E372Q", "ROSSI MARIA"), riga("BNCLGU75C12I520K", "BIANCHI LUIGI", "S")]), tipo: "modello" };
+const mod: PraticaFile = { ...file("modello", []), righe: [riga("RSSMRA80A41E372Q", "ROSSI MARIA"), riga("BNCLGU75C12I520K", "BIANCHI LUIGI", "S")], tipo: "modello", colonne: { _usa_stati: "si" } };
+const r3b = riscontro([voce("2", "BNCLGU75C12I520K", "BIANCHI LUIGI")], [{ ...mod, colonne: {} }]);
+ok("elenco con stato ma senza consenso: non fatta", r3b.voci[0].stato === "N", r3b.voci[0].stato);
 const r3 = riscontro([voce("1", "RSSMRA80A41E372Q", "ROSSI MARIA"), voce("2", "BNCLGU75C12I520K", "BIANCHI LUIGI")], [mod]);
 ok("elenco senza stati: non fatta", r3.voci[0].stato === "N", r3.voci[0].stato);
 ok("elenco con «data stampa»: stampata", r3.voci[1].stato === "S" && r3.fuori.length === 0, r3.voci[1].stato);
@@ -46,4 +48,6 @@ ok("nominativo con apostrofo", s4("b") === "S", s4("b"));
 ok("nominativo con forma societaria", s4("c") === "C", s4("c"));
 ok("CUAA con nominativo diverso", s4("d") === "R", s4("d"));
 ok("omonimi: solo per CUAA", s4("e") === "N" && s4("f") === "N", s4("e") + s4("f"));
+const r5 = riscontro([voce("z", "RSSMRA80A41E372Q", "ROSSI MARIA")], [{ ...file("senza", []), righe: [riga("RSSMRA80A41E372Q", "ROSSI MARIA")] }]);
+ok("riga senza stato: non fatta", r5.voci[0].stato === "N", r5.voci[0].stato);
 console.log(ko ? `${ko} prove fallite` : "Tutte le prove superate");

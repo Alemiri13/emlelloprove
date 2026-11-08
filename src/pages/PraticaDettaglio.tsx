@@ -132,7 +132,7 @@ export function PraticaDettaglioPage() {
                     chips={st && <>
                       {(["R", "S", "C"] as StatoDomanda[]).filter((s) => st.perStato[s]).map((s) => <span key={s} className="chip !h-6 !text-[11px]" style={{ background: STATI[s].color + "14", color: STATI[s].color }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: STATI[s].color }} />{st.perStato[s]} {NOME_STATO[s].toLowerCase()}</span>)}
                       {st.fuori > 0 && <span className="chip !h-6 !text-[11px] bg-amber-50 text-amber-700">{st.fuori} fuori elenco</span>}
-                      {!f.colonne.stato && <span className="chip !h-6 !text-[11px] bg-ink-50 text-ink-500">tutte {NOME_STATO[f.stato_predefinito].toLowerCase()}</span>}
+                      {f.righe.some((x) => !x.stato || x.stato === "N") && <span className="chip !h-6 !text-[11px] bg-red-50 text-red-700">{f.righe.filter((x) => !x.stato || x.stato === "N").length} senza stato (non fatte)</span>}
                     </>}
                     azioni={<>
                       <IconBtn title="Scarica il file originale" onClick={() => scarica(f)} disabled={!f.storage_path}><Download size={16} /></IconBtn>

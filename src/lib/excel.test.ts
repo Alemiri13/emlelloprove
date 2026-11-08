@@ -89,4 +89,10 @@ const a10 = analizzaFile([f10], CAMPI_DOMANDA)[0];
 const st10 = a10.righe.map((r) => statoRiga(a10, r, indiziStato(a10)));
 verifica("parola di stato in una cella", st10[0] === "S" && st10[1] == null, st10.join(","));
 
+// 11. colonna di «1»/«X» senza intestazione di stato: non vuol dire «fatta»
+const f11: Foglio = { nome: "x", righe: [["Codice fiscale", "Nominativo", "Flag"], ...CF.map((c, i) => [c, "AZIENDA PROVA " + i, i % 2 ? "X" : "1"])] };
+const a11 = analizzaFile([f11], CAMPI_DOMANDA)[0];
+const st11 = a11.righe.map((r) => statoRiga(a11, r, indiziStato(a11)));
+verifica("valori ambigui senza intestazione: nessuno stato", st11.every((x) => x == null), st11.join(",") + " mappa stato: " + JSON.stringify(a11.mappa.stato));
+
 console.log(falliti ? `${falliti} prove fallite` : "Tutte le prove superate");

@@ -510,7 +510,13 @@ const ORD: Record<StatoDomanda, number> = { N: 0, C: 1, S: 2, R: 3 };
  */
 export function statoRiga<K extends string>(a: Pick<Analisi<K>, "intestazioni" | "mappa">, riga: unknown[], indizi: IndizioStato[]): StatoDomanda | null {
   const m = (a.mappa as Record<string, Abbinamento | undefined>).stato;
-  if (m) { const s = stato(riga[m.col]); if (s) return s; }
+  if (m) {
+    // colonna riconosciuta solo dal contenuto (senza intestazione «stato»): valori ambigui come 1, X, SI non bastano
+    const v = riga[m.col];
+    const daIntestazione = /intestazione|a mano/.test(m.perche);
+    const s = stato(v);
+    if (s && (daIntestazione || STATO_FORTE.test(normalizza(String(v ?? ""))))) return s;
+  }
   let best: StatoDomanda | null = null;
   for (const i of indizi) if (cellaPositiva(riga[i.col]) && (!best || ORD[i.stato] > ORD[best])) best = i.stato;
   if (best) return best;

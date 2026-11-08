@@ -52,12 +52,14 @@ export interface Riscontro {
 export function riscontro(voci: Voce[], files: PraticaFile[]): Riscontro {
   const fatte = files.filter((f) => f.tipo === "fatte");
   // l'elenco da fare conta solo per le righe in cui il file indica davvero uno stato (es. «Data stampa» compilata)
-  const modelli = files.filter((f) => f.tipo === "modello");
+  // …e solo se al caricamento è stato scelto esplicitamente di usarlo: di base l'elenco è tutto «non fatto»
+  const modelli = files.filter((f) => f.tipo === "modello" && f.colonne?._usa_stati === "si");
   const perCuaa = new Map<string, Fonte[]>();
   const perNome = new Map<string, Fonte[]>();
   const tutte: Fonte[] = [];
   for (const f of [...fatte, ...modelli]) for (const r of f.righe) {
-    const st: StatoDomanda | null = f.tipo === "modello" ? r.stato : r.stato ?? f.stato_predefinito;
+    // conta solo lo stato scritto nella riga (colonna stato, indizi, scelta esplicita al caricamento): di base non fatta
+    const st: StatoDomanda | null = r.stato;
     if (!st) continue;
     if (st === "N") continue; // righe esplicitamente «non fatte» non contano come fatte
     const fonte = { file: f, riga: r, stato: st };
