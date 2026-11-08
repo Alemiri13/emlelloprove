@@ -3,7 +3,7 @@ import { ClipboardList, FileStack, House, ListChecks, Plus, Sprout, Users } from
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
-import { useAbbinamenti, useAziende, useColture, useDomande, usePratiche, useUffici } from "../../lib/queries";
+import { useAbbinamenti, useAziende, useCaricamenti, useColture, useDomande, usePratiche, useUffici } from "../../lib/queries";
 import { ModalsCtx, UfficioCtx, type ModalsApi, type UfficioData } from "../../lib/ufficio";
 import { calcolaAttivita } from "../../lib/domain";
 import { Logo } from "./Logo";
@@ -12,7 +12,7 @@ import { Spinner } from "../ui/Spinner";
 import { AziendaModal } from "../../features/AziendaModal";
 import { DomandaModal } from "../../features/DomandaModal";
 import { NuovaAziendaWizard } from "../../features/NuovaAziendaWizard";
-import { NuovaDomandaWizard } from "../../features/NuovaDomandaWizard";
+import { NuovaDomanda } from "../../features/NuovaDomanda";
 import { hasOpenModal } from "../ui/Modal";
 
 const NAV = [
@@ -34,11 +34,12 @@ export function AppShell() {
   const pratiche = usePratiche();
   const colture = useColture();
   const abb = useAbbinamenti();
+  const caricamenti = useCaricamenti(ufficioId);
 
   const [azModal, setAzModal] = useState<{ id: string; tab?: string } | null>(null);
   const [domModal, setDomModal] = useState<{ aziendaId: string; praticaId: string } | null>(null);
   const [newAz, setNewAz] = useState(false);
-  const [newDom, setNewDom] = useState<{ aziendaId?: string; praticaId?: string } | null>(null);
+  const [newDom, setNewDom] = useState(false);
 
   useEffect(() => { try { if (ufficioId) localStorage.setItem("cia-ufficio", ufficioId); } catch { /* ignore */ } }, [ufficioId]);
   // chiudi i modali quando cambi ufficio
@@ -50,23 +51,24 @@ export function AppShell() {
     if (!ufficio) return null;
     const az = aziende.data ?? [];
     const dom = domande.data ?? [];
-    const pr = pratiche.data ?? [];
+    const car = caricamenti.data ?? [];
+    const pr = (pratiche.data ?? []).map((p) => ({ ...p, modello: car.some((c) => c.pratica_id === p.id && c.tipo === "modello") }));
     const co = colture.data ?? [];
     return {
-      ufficio, uffici: uffici.data ?? [], aziende: az, domande: dom, pratiche: pr, colture: co, abbinamenti: abb.data ?? [],
+      ufficio, uffici: uffici.data ?? [], aziende: az, domande: dom, pratiche: pr, colture: co, abbinamenti: abb.data ?? [], caricamenti: car,
       loading: aziende.isLoading || domande.isLoading || pratiche.isLoading || colture.isLoading,
       azById: new Map(az.map((a) => [a.id, a])),
       praticaById: new Map(pr.map((p) => [p.id, p])),
       colturaById: new Map(co.map((c) => [c.id, c])),
       domandaByKey: new Map(dom.map((d) => [d.azienda_id + "|" + d.pratica_id, d])),
     };
-  }, [ufficio, uffici.data, aziende.data, domande.data, pratiche.data, colture.data, abb.data, aziende.isLoading, domande.isLoading, pratiche.isLoading, colture.isLoading]);
+  }, [ufficio, uffici.data, aziende.data, domande.data, pratiche.data, colture.data, abb.data, caricamenti.data, aziende.isLoading, domande.isLoading, pratiche.isLoading, colture.isLoading]);
 
   const modals = useMemo<ModalsApi>(() => ({
     apriAzienda: (id, tab) => setAzModal({ id, tab }),
     apriDomanda: (aziendaId, praticaId) => setDomModal({ aziendaId, praticaId }),
     nuovaAzienda: () => setNewAz(true),
-    nuovaDomanda: (prefill) => setNewDom(prefill ?? {}),
+    nuovaDomanda: () => setNewDom(true),
   }), []);
 
   const nTodo = useMemo(() => (data ? calcolaAttivita(data.aziende, data.pratiche, data.abbinamenti, data.domande).filter((a) => a.urgente).length : 0), [data]);
@@ -98,7 +100,7 @@ export function AppShell() {
             <div className="h-20 flex items-center px-7"><Logo className="h-9 w-auto" /></div>
             <div className="px-4">
               <button
-                onClick={() => setNewDom({})}
+                onClick={() => setNewDom(true)}
                 className="w-full h-12 rounded-2xl bg-brand-800 text-white font-semibold text-[14px] flex items-center justify-center gap-2 shadow-[0_8px_20px_-8px_rgba(0,80,42,.65)] hover:bg-brand-900 active:scale-[.98] transition"
               >
                 <Plus size={18} strokeWidth={2.5} /> Nuova domanda
@@ -171,7 +173,7 @@ export function AppShell() {
             <AziendaModal state={azModal} onClose={() => setAzModal(null)} />
             <DomandaModal state={domModal} onClose={() => setDomModal(null)} />
             <NuovaAziendaWizard open={newAz} onClose={() => setNewAz(false)} />
-            <NuovaDomandaWizard state={newDom} onClose={() => setNewDom(null)} />
+            <NuovaDomanda open={newDom} onClose={() => setNewDom(false)} />
           </>
         )}
       </ModalsCtx.Provider>

@@ -1,4 +1,4 @@
-import type { Abbinamento, Azienda, Documento, Domanda, Esito, Pratica, StatoDomanda, StatoPagamento } from "./types";
+import type { Abbinamento, Azienda, Documento, Domanda, Esito, Pratica, StatoDomanda } from "./types";
 import { eta } from "./cf";
 import { daysFromToday, parseISO } from "./format";
 
@@ -16,27 +16,6 @@ export const ESITI: Record<Esito, { label: string; color: string; bg: string; te
   P: { label: "Ammessa in parte", color: "#65A30D", bg: "bg-lime-50", text: "text-lime-700", desc: "Accolta con riduzioni" },
   X: { label: "Non ammessa", color: "#DC2626", bg: "bg-red-50", text: "text-red-700", desc: "Respinta, indica i motivi" },
 };
-
-export const PAGAMENTI: Record<StatoPagamento, { label: string; bg: string; text: string }> = {
-  pagata: { label: "Pagata", bg: "bg-green-50", text: "text-green-700" },
-  parziale: { label: "Pagata in parte", bg: "bg-lime-50", text: "text-lime-700" },
-  non_pagata: { label: "Non pagata", bg: "bg-amber-50", text: "text-amber-700" },
-  non_dovuto: { label: "Non dovuto", bg: "bg-slate-100", text: "text-slate-600" },
-  attesa: { label: "In attesa di esito", bg: "bg-slate-100", text: "text-slate-600" },
-};
-
-/** Stato pagamento calcolato dagli importi (sovrascrivibile a mano). */
-export function statoPagamento(d: Domanda | null | undefined, p: Pratica | undefined): StatoPagamento | null {
-  if (!d || !p || !p.ha_contributo || d.stato !== "R") return null;
-  if (d.stato_pagamento_manuale) return d.stato_pagamento_manuale;
-  if (d.esito === "X") return "non_dovuto";
-  const pagato = Number(d.importo_pagato) || 0;
-  const rif = d.importo_ammesso ?? d.importo_richiesto;
-  if (pagato > 0 && rif != null && pagato >= Number(rif)) return "pagata";
-  if (pagato > 0) return "parziale";
-  if (d.esito === "A" || d.esito === "P") return "non_pagata";
-  return "attesa";
-}
 
 /** Data di riferimento per l'età: oggi, o la scadenza se già passata. */
 function dataRiferimento(p: Pratica) {
@@ -68,7 +47,12 @@ export function soddisfaCriteri(a: Azienda, p: Pratica): boolean {
 
 export type MotivoAbbinamento = "criteri" | "incluso" | "domanda";
 
-/** Aziende abbinate a una pratica: criteri + inclusi − esclusi, più chi ha già una domanda. */
+/**
+ * Aziende abbinate a una pratica.
+ * - Se per l'ufficio è stato caricato l'elenco delle domande da fare (modello): solo le aziende dell'elenco.
+ * - Altrimenti: aziende che rispettano i requisiti + inclusi − esclusi.
+ * In entrambi i casi restano abbinate le aziende che hanno già una domanda avviata.
+ */
 export function abbinate(aziende: Azienda[], p: Pratica, abb: Abbinamento[], domande: Domanda[]) {
   const inclusi = new Set(abb.filter((x) => x.pratica_id === p.id && x.tipo === "incluso").map((x) => x.azienda_id));
   const esclusi = new Set(abb.filter((x) => x.pratica_id === p.id && x.tipo === "escluso").map((x) => x.azienda_id));
@@ -77,7 +61,7 @@ export function abbinate(aziende: Azienda[], p: Pratica, abb: Abbinamento[], dom
   for (const a of aziende) {
     if (conDomanda.has(a.id)) out.set(a.id, "domanda");
     else if (inclusi.has(a.id)) out.set(a.id, "incluso");
-    else if (!esclusi.has(a.id) && soddisfaCriteri(a, p)) out.set(a.id, "criteri");
+    else if (!p.modello && !esclusi.has(a.id) && soddisfaCriteri(a, p)) out.set(a.id, "criteri");
   }
   return out;
 }
@@ -131,7 +115,7 @@ export const KIT = [
 ];
 
 // ---------------- Attività "Da fare" ----------------
-export type TipoAttivita = "presentare" | "completare" | "rilasciare" | "riesame" | "pagamento" | "quota";
+export type TipoAttivita = "presentare" | "completare" | "rilasciare" | "riesame";
 export interface Attivita {
   tipo: TipoAttivita; azienda: Azienda; pratica: Pratica; domanda?: Domanda; priorita: number; urgente: boolean; dettaglio: string;
 }
@@ -141,8 +125,6 @@ export const TIPI_ATTIVITA: Record<TipoAttivita, { label: string; desc: string; 
   completare: { label: "Da completare", desc: "Domande in compilazione", color: "#EA8C0C" },
   rilasciare: { label: "Da rilasciare", desc: "Stampate, da firmare e rilasciare", color: "#2563EB" },
   riesame: { label: "Non ammesse", desc: "Senza riesame o ricorso", color: "#B91C1C" },
-  pagamento: { label: "Pagamenti attesi", desc: "Ammesse non ancora pagate", color: "#65A30D" },
-  quota: { label: "Quote da incassare", desc: "Servizio CIA non ancora incassato", color: "#00502A" },
 };
 
 export function calcolaAttivita(aziende: Azienda[], pratiche: Pratica[], abb: Abbinamento[], domande: Domanda[]): Attivita[] {
@@ -164,12 +146,6 @@ export function calcolaAttivita(aziende: Azienda[], pratiche: Pratica[], abb: Ab
       if (stato === "C") out.push({ tipo: "completare", azienda: a, pratica: p, domanda: d, priorita: giorni ?? 500, urgente: giorni != null && giorni >= 0 && giorni <= 15, dettaglio: "In compilazione" });
       if (stato === "S") out.push({ tipo: "rilasciare", azienda: a, pratica: p, domanda: d, priorita: giorni ?? 400, urgente: giorni != null && giorni >= 0 && giorni <= 15, dettaglio: d.numero ? `N. ${d.numero}` : "Stampata" });
       if (stato === "R" && d.esito === "X" && !d.riesame) out.push({ tipo: "riesame", azienda: a, pratica: p, domanda: d, priorita: 0, urgente: true, dettaglio: d.motivi[0] ?? "Motivo non indicato" });
-      const sp = statoPagamento(d, p);
-      if (sp === "non_pagata" || sp === "parziale") {
-        const g = d.data_esito ? -(daysFromToday(d.data_esito) ?? 0) : 0;
-        out.push({ tipo: "pagamento", azienda: a, pratica: p, domanda: d, priorita: -g, urgente: g > 90, dettaglio: g > 0 ? `Esito da ${g} giorni` : "Esito recente" });
-      }
-      if (stato === "R" && (d.quota_importo ?? 0) > 0 && !d.quota_incassata) out.push({ tipo: "quota", azienda: a, pratica: p, domanda: d, priorita: 0, urgente: false, dettaglio: `€ ${d.quota_importo}` });
     }
   }
   return out.sort((x, y) => Number(y.urgente) - Number(x.urgente) || x.priorita - y.priorita);

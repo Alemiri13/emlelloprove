@@ -1,6 +1,5 @@
 export type StatoDomanda = "N" | "C" | "S" | "R";
 export type Esito = "I" | "A" | "P" | "X";
-export type StatoPagamento = "pagata" | "parziale" | "non_pagata" | "non_dovuto" | "attesa";
 
 export interface Ufficio { id: string; nome: string; indirizzo: string | null; telefono: string | null; ordine: number }
 export interface Profilo { id: string; username: string; nome: string; ufficio_preferito: string | null }
@@ -24,8 +23,21 @@ export interface Criteri {
 
 export interface Pratica {
   id: string; codice: string | null; nome: string; categoria: "annuale" | "bando"; ente: string | null; campagna: string | null;
-  unita: "euro" | "litri"; ha_contributo: boolean; apertura: string | null; scadenza: string | null; quota_default: number | null;
+  unita: "euro" | "litri"; apertura: string | null; scadenza: string | null;
   motivi_tipici: string[]; criteri: Criteri; esempio: boolean; attivo: boolean; note: string | null; ordine: number;
+  tipo_domanda_id: string | null;
+  /** calcolato per l'ufficio corrente: è stato caricato l'elenco delle domande da fare */
+  modello?: boolean;
+}
+
+export interface TipoDomanda {
+  id: string; nome: string; codice: string | null; tipologia: "annuale" | "una_tantum"; ambito: string; ente: string | null;
+  periodo: string | null; descrizione: string | null; unita: "euro" | "litri"; criteri: Criteri; parole: string[]; fonte: string | null; ordine: number;
+}
+
+export interface Caricamento {
+  id: string; pratica_id: string; ufficio_id: string; tipo: "modello" | "fatte"; file_names: string[]; righe: number;
+  riepilogo: Record<string, unknown>; created_at: string; created_by: string | null;
 }
 
 export interface Abbinamento { pratica_id: string; azienda_id: string; tipo: "incluso" | "escluso" }
@@ -33,10 +45,7 @@ export interface Abbinamento { pratica_id: string; azienda_id: string; tipo: "in
 export interface Domanda {
   id: string; azienda_id: string; pratica_id: string; stato: StatoDomanda; numero: string | null; data_presentazione: string | null;
   esito: Esito; motivi: string[]; data_esito: string | null; riesame: string | null;
-  importo_richiesto: number | null; importo_ammesso: number | null; importo_pagato: number | null; data_pagamento: string | null;
-  stato_pagamento_manuale: Exclude<StatoPagamento, "attesa"> | null;
-  litri_richiesti: number | null; litri_assegnati: number | null; n_libretto: string | null;
-  quota_importo: number | null; quota_incassata: boolean; quota_data: string | null; note: string | null;
+  litri_richiesti: number | null; litri_assegnati: number | null; n_libretto: string | null; note: string | null;
   created_at: string; updated_at: string; updated_by: string | null;
 }
 

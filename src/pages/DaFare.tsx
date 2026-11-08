@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
-import { AlertCircle, CheckCircle2, ChevronRight, ListChecks } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, ListChecks, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { calcolaAttivita, TIPI_ATTIVITA, type TipoAttivita } from "../lib/domain";
@@ -12,7 +13,10 @@ import { PageHeader } from "./Anagrafica";
 export function DaFarePage() {
   const { aziende, pratiche, abbinamenti, domande, ufficio } = useUfficio();
   const { apriDomanda } = useModals();
-  const all = useMemo(() => calcolaAttivita(aziende, pratiche, abbinamenti, domande), [aziende, pratiche, abbinamenti, domande]);
+  const [params, setParams] = useSearchParams();
+  const filtroPratica = params.get("pratica");
+  const praticaFiltro = pratiche.find((p) => p.id === filtroPratica);
+  const all = useMemo(() => calcolaAttivita(aziende, praticaFiltro ? [praticaFiltro] : pratiche, abbinamenti, domande), [aziende, pratiche, praticaFiltro, abbinamenti, domande]);
   const [tipo, setTipo] = useState<TipoAttivita | "urgenti" | null>(null);
   const [limit, setLimit] = useState(40);
   const counts = useMemo(() => {
@@ -28,7 +32,13 @@ export function DaFarePage() {
   return (
     <div>
       <PageHeader title="Da fare" subtitle={`Attività generate in automatico per l'ufficio di ${ufficio.nome}`} />
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
+      {praticaFiltro && (
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-50 ring-1 ring-brand-100 pl-4 pr-1.5 h-10 text-[13.5px] font-semibold text-brand-900">
+          Solo: {praticaFiltro.nome}
+          <button onClick={() => setParams({})} className="h-7 w-7 grid place-items-center rounded-full hover:bg-white text-brand-700" aria-label="Togli il filtro"><X size={15} /></button>
+        </div>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <Tile on={scelto === "urgenti"} onClick={() => { setTipo("urgenti"); setLimit(40); }} color="#DC2626" label="Urgenti" count={urgenti.length} desc="Da trattare subito" icon={<AlertCircle size={18} />} />
         {(Object.keys(TIPI_ATTIVITA) as TipoAttivita[]).map((k) => (
           <Tile key={k} on={scelto === k} onClick={() => { setTipo(k); setLimit(40); }} color={TIPI_ATTIVITA[k].color} label={TIPI_ATTIVITA[k].label} count={counts[k]} desc={TIPI_ATTIVITA[k].desc} />

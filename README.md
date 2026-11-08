@@ -34,10 +34,22 @@ Da Home, Anagrafica o dalla scheda di un'azienda: si trascinano uno o più file 
 Tutto avviene nel browser, senza servizi esterni a pagamento. L'esito dell'analisi e il testo letto vengono salvati con il documento (`documenti.analisi`, `documenti.testo`).
 Il motore è in `src/lib/analisi/`; le prove con dati fittizi si lanciano con `npm run test:analisi`.
 
-## Import da Excel
+## Flusso delle domande
 
-- **Aziende** (Anagrafica → *Importa Excel*): basta una colonna con il CUAA (e la denominazione per le nuove). Colonne riconosciute in automatico e correggibili; si sceglie in quali uffici inserirle. Le celle vuote non cancellano i dati esistenti; le colture citate vengono aggiunte al catalogo se mancano.
-- **Domande** (Domande → *Importa da Excel*): si scrive la tipologia di domanda (esistente o nuova), si carica l'elenco dei nominativi e lo stato viene letto dal file (o applicato a tutti). I CUAA sconosciuti diventano nuove aziende dell'ufficio. Al termine un riepilogo mostra, per ogni pratica, le domande fatte, stampate, in compilazione e non fatte, con l'elenco dei nominativi. Un file con più tipi di domanda viene gestito abbinando ogni tipo a una pratica.
+1. **Nuova domanda** → si sceglie la pratica: tra quelle in uso, dal **catalogo dei tipi di domanda** (annuali e una tantum: DU, UMA, vendemmia, giacenza, SRA, SRB01, titoli, SRF01, SRE01, SRD01/02, RRV, ISMEA, ISI INAIL…) oppure creandone una nuova.
+2. Nella pagina della pratica, **passo 1**: si carica l'Excel delle **domande da fare** (il modello). Si fa una volta: le aziende dell'elenco entrano nella pratica come «Non fatte»; i CUAA non in anagrafica vengono creati.
+3. **Passo 2**: si carica l'Excel (anche più file) delle **domande fatte**. Il confronto con il modello mette il pallino a ogni azienda: 🟢 fatta, 🔵 stampata, 🟠 in compilazione, 🔴 da fare. Se il file non ha una colonna di stato, chi è nel file risulta fatto. Le aziende «fuori elenco» vengono segnalate e, se si vuole, aggiunte. Il caricamento si può ripetere a ogni aggiornamento.
+4. Chi resta da fare finisce in **Da fare**, filtrabile per pratica.
+
+Importi, pagamenti e quota servizio non fanno parte del gestionale.
+
+## Riconoscimento degli Excel
+
+`src/lib/excel.ts`: trova da solo il foglio giusto e la riga d'intestazione (anche dopo righe di titolo, su due righe con celle unite, o assente), profila il contenuto di ogni colonna (codici fiscali con carattere di controllo, partite IVA anche senza gli zeri iniziali tolti da Excel, date, stati, esiti, nominativi, codici, sì/no, email, PEC, telefoni…), confronta le intestazioni con un dizionario di sinonimi con espansione delle abbreviazioni e tolleranza agli errori di battitura, e assegna ogni campo alla colonna migliore con una confidenza e una spiegazione. Gestisce cognome e nome in colonne separate, righe di totale e colonne vuote. Le prove (`npm run test:analisi`) coprono questi casi.
+
+## Import aziende
+
+Anagrafica → *Importa Excel*: basta una colonna con il CUAA (e la denominazione per le nuove). Si sceglie in quali uffici inserirle; le celle vuote non cancellano i dati esistenti.
 
 ## Anagrafica per ufficio
 

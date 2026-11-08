@@ -1,8 +1,8 @@
 import { motion } from "framer-motion";
 import { useId, type ReactNode } from "react";
 import clsx from "clsx";
-import { ESITI, PAGAMENTI, STATI } from "../../lib/domain";
-import type { Esito, StatoDomanda, StatoPagamento } from "../../lib/types";
+import { ESITI, STATI } from "../../lib/domain";
+import type { Esito, StatoDomanda } from "../../lib/types";
 import { initials } from "../../lib/format";
 
 export function StatoPill({ stato, size = "md", className }: { stato: StatoDomanda; size?: "sm" | "md"; className?: string }) {
@@ -20,10 +20,6 @@ export function EsitoPill({ esito, className }: { esito: Esito; className?: stri
   return <span className={clsx("chip", e.bg, e.text, className)}>{e.label}</span>;
 }
 
-export function PagamentoPill({ stato }: { stato: StatoPagamento }) {
-  const p = PAGAMENTI[stato];
-  return <span className={clsx("chip", p.bg, p.text)}>{p.label}</span>;
-}
 
 const AVATAR_COLORS = ["#E8F3E4", "#E4EFF5", "#F5EEE1", "#EFE7F3", "#F4E6E6", "#E3F1EE"];
 const AVATAR_TEXT = ["#1C6326", "#1E5A7A", "#8A5A12", "#5B3A7A", "#8A2A2A", "#1F6B5E"];

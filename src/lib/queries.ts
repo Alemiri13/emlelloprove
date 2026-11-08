@@ -1,18 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { check, supabase } from "./supabase";
-import type { Abbinamento, Azienda, Coltura, Documento, Domanda, Pratica, Profilo, Storico, Ufficio } from "./types";
+import type { Abbinamento, Azienda, Caricamento, Coltura, Documento, Domanda, Pratica, Profilo, Storico, TipoDomanda, Ufficio } from "./types";
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
 function fixAzienda(a: Azienda): Azienda {
   return { ...a, sau_ha: num(a.sau_ha), azienda_colture: (a.azienda_colture ?? []).map((c) => ({ ...c, superficie_ha: num(c.superficie_ha) })) };
 }
+/** Le colonne di importi/pagamenti/quota non fanno più parte del gestionale: vengono scartate se ancora presenti nel database. */
+const SCARTA = ["importo_richiesto", "importo_ammesso", "importo_pagato", "data_pagamento", "stato_pagamento_manuale", "quota_importo", "quota_incassata", "quota_data"];
 function fixDomanda(d: Domanda): Domanda {
-  return {
-    ...d,
-    importo_richiesto: num(d.importo_richiesto), importo_ammesso: num(d.importo_ammesso), importo_pagato: num(d.importo_pagato),
-    quota_importo: num(d.quota_importo),
-  };
+  const o = { ...d } as Record<string, unknown>;
+  for (const k of SCARTA) delete o[k];
+  return o as unknown as Domanda;
 }
 
 // ---------------- Letture ----------------
@@ -95,8 +95,27 @@ export function usePratiche() {
     queryKey: ["pratiche"],
     queryFn: async () => {
       const rows = check(await supabase.from("pratiche").select("*").order("ordine").order("nome")) as Pratica[];
-      return rows.map((p) => ({ ...p, quota_default: num(p.quota_default), criteri: p.criteri ?? {} }));
+      return rows.map((p) => {
+        const { quota_default: _q, ha_contributo: _h, ...resto } = p as Pratica & { quota_default?: unknown; ha_contributo?: unknown };
+        return { ...resto, criteri: p.criteri ?? {} } as Pratica;
+      });
     },
+  });
+}
+
+export function useTipiDomanda() {
+  return useQuery({
+    queryKey: ["tipi-domanda"],
+    queryFn: async () => check(await supabase.from("tipi_domanda").select("*").order("ordine")) as TipoDomanda[],
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useCaricamenti(ufficio: string | undefined) {
+  return useQuery({
+    queryKey: ["caricamenti", ufficio],
+    enabled: !!ufficio,
+    queryFn: async () => check(await supabase.from("pratica_caricamenti").select("*").eq("ufficio_id", ufficio!).order("created_at", { ascending: false })) as Caricamento[],
   });
 }
 

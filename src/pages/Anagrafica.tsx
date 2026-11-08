@@ -144,8 +144,13 @@ export function AnagraficaPage() {
           <Empty
             icon={<Users size={28} />}
             title={aziende.length ? "Nessuna azienda trovata" : "Ancora nessuna azienda"}
-            desc={aziende.length ? "Prova a cambiare la ricerca o i filtri." : "Inserisci la prima azienda di questo ufficio."}
-            action={!aziende.length && <Button icon={<Plus size={18} />} onClick={nuovaAzienda}>Nuova azienda</Button>}
+            desc={aziende.length ? "Prova a cambiare la ricerca o i filtri." : `L'anagrafica dell'ufficio di ${ufficio.nome} è vuota: caricala da un file Excel, riconosco da solo le colonne.`}
+            action={!aziende.length && (
+              <div className="flex flex-wrap justify-center gap-3">
+                <Button size="lg" icon={<FileSpreadsheet size={18} />} onClick={() => setImporta(true)}>Importa da Excel</Button>
+                <Button size="lg" variant="secondary" icon={<Plus size={18} />} onClick={nuovaAzienda}>Inserisci a mano</Button>
+              </div>
+            )}
           />
         </div>
       ) : (

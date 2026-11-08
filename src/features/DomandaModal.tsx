@@ -1,16 +1,14 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CircleDashed, ClipboardList, Euro, FileCheck2, Gavel, PenLine, Plus, Printer, Send, Trash2, Wallet, X, XCircle, CheckCircle2, CircleDot, Hourglass } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, CircleDashed, ClipboardList, FileCheck2, Gavel, PenLine, Plus, Printer, Send, Trash2, X, XCircle, CheckCircle2, CircleDot, Hourglass } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
-import { Field, NumberInput, TextArea, TextInput, Toggle } from "../components/ui/Inputs";
+import { Field, NumberInput, TextArea, TextInput } from "../components/ui/Inputs";
 import { DatePicker } from "../components/ui/DatePicker";
-import { Select } from "../components/ui/Select";
 import { useFeedback } from "../components/ui/Feedback";
-import { PagamentoPill } from "../components/ui/Misc";
-import { ESITI, STATI, statoPagamento } from "../lib/domain";
-import { eur, titleCase, todayISO } from "../lib/format";
+import { ESITI, STATI } from "../lib/domain";
+import { titleCase, todayISO } from "../lib/format";
 import { useEliminaDomanda, useSalvaDomanda, type DomandaInput } from "../lib/queries";
 import { useModals, useUfficio } from "../lib/ufficio";
 import type { Domanda, Esito, StatoDomanda } from "../lib/types";
@@ -27,10 +25,9 @@ type Form = Omit<DomandaInput, "azienda_id" | "pratica_id"> & { stato: StatoDoma
 function emptyForm(d?: Domanda): Form {
   return {
     stato: d?.stato ?? "N", numero: d?.numero ?? null, data_presentazione: d?.data_presentazione ?? null, esito: d?.esito ?? "I", motivi: d?.motivi ?? [],
-    data_esito: d?.data_esito ?? null, riesame: d?.riesame ?? null, importo_richiesto: d?.importo_richiesto ?? null, importo_ammesso: d?.importo_ammesso ?? null,
-    importo_pagato: d?.importo_pagato ?? null, data_pagamento: d?.data_pagamento ?? null, stato_pagamento_manuale: d?.stato_pagamento_manuale ?? null,
+    data_esito: d?.data_esito ?? null, riesame: d?.riesame ?? null,
     litri_richiesti: d?.litri_richiesti ?? null, litri_assegnati: d?.litri_assegnati ?? null, n_libretto: d?.n_libretto ?? null,
-    quota_importo: d?.quota_importo ?? null, quota_incassata: d?.quota_incassata ?? false, quota_data: d?.quota_data ?? null, note: d?.note ?? null,
+    note: d?.note ?? null,
   };
 }
 
@@ -55,13 +52,10 @@ export function DomandaModal({ state, onClose }: { state: { aziendaId: string; p
     const n = { ...x, [k]: v };
     // stesse regole del database, mostrate subito
     if (k === "esito" && v !== "I") n.stato = "R";
-    if (k === "importo_pagato" && (v as number) > 0) { n.stato = "R"; if (n.esito === "I") n.esito = "A"; }
-    if (k === "stato" && v === "R" && n.quota_importo == null && p?.quota_default != null) n.quota_importo = p.quota_default;
     if (k === "stato" && v === "R" && !n.data_presentazione) n.data_presentazione = todayISO();
     return n;
   });
 
-  const preview = useMemo(() => (p ? statoPagamento({ ...(d ?? ({} as Domanda)), ...f } as Domanda, p) : null), [f, d, p]);
 
   if (!a || !p) return <Modal open={false} onClose={onClose}>{null}</Modal>;
   const isR = f.stato === "R";
@@ -70,7 +64,7 @@ export function DomandaModal({ state, onClose }: { state: { aziendaId: string; p
   const save = async () => {
     if (f.stato === "N") {
       if (d) {
-        const ok = await confirm({ title: "Riportare a «Non fatta»?", message: "La domanda verrà rimossa con tutti i suoi dati (esito, importi, quota).", confirmLabel: "Rimuovi", danger: true });
+        const ok = await confirm({ title: "Riportare a «Non fatta»?", message: "La domanda verrà rimossa con tutti i suoi dati (numero, date, esito).", confirmLabel: "Rimuovi", danger: true });
         if (!ok) return;
         await elimina.mutateAsync(d.id);
         toast("success", "Domanda rimossa");
@@ -145,8 +139,6 @@ export function DomandaModal({ state, onClose }: { state: { aziendaId: string; p
                       <Field label="Litri richiesti" optional><NumberInput value={f.litri_richiesti} onChange={(v) => set("litri_richiesti", v == null ? null : Math.round(v))} suffix="L" decimals={0} /></Field>
                       <Field label="N. libretto" optional><TextInput value={f.n_libretto ?? ""} onChange={(e) => set("n_libretto", e.target.value || null)} /></Field>
                     </>
-                  ) : p.ha_contributo ? (
-                    <Field label="Importo richiesto" optional><NumberInput value={f.importo_richiesto} onChange={(v) => set("importo_richiesto", v)} suffix="€" /></Field>
                   ) : null}
                 </div>
               </Section>
@@ -213,48 +205,10 @@ export function DomandaModal({ state, onClose }: { state: { aziendaId: string; p
             </Collapse>
           )}
 
-          {isR && (p.ha_contributo || litri) && f.esito !== "X" && (
-            <Collapse key="pag">
-              <Section n={4} title={litri ? "Assegnazione" : "Pagamento"} icon={litri ? <FileCheck2 size={16} /> : <Euro size={16} />} right={preview && <PagamentoPill stato={preview} />}>
-                {litri ? (
-                  <div className="max-w-xs"><Field label="Litri assegnati"><NumberInput value={f.litri_assegnati} onChange={(v) => set("litri_assegnati", v == null ? null : Math.round(v))} suffix="L" decimals={0} /></Field></div>
-                ) : (
-                  <div className="grid sm:grid-cols-3 gap-4">
-                    <Field label="Importo ammesso"><NumberInput value={f.importo_ammesso} onChange={(v) => set("importo_ammesso", v)} suffix="€" /></Field>
-                    <Field label="Importo pagato"><NumberInput value={f.importo_pagato} onChange={(v) => set("importo_pagato", v)} suffix="€" /></Field>
-                    <Field label="Data pagamento"><DatePicker value={f.data_pagamento} onChange={(v) => set("data_pagamento", v)} /></Field>
-                    <Field label="Stato del pagamento" className="sm:col-span-3 sm:max-w-sm" hint="Calcolato dagli importi: cambialo solo se serve.">
-                      <Select
-                        value={f.stato_pagamento_manuale ?? "auto"}
-                        onChange={(v) => set("stato_pagamento_manuale", v === "auto" ? null : (v as Form["stato_pagamento_manuale"]))}
-                        options={[
-                          { value: "auto", label: "Automatico", hint: "In base a ammesso e pagato" },
-                          { value: "pagata", label: "Pagata" }, { value: "parziale", label: "Pagata in parte" },
-                          { value: "non_pagata", label: "Non pagata" }, { value: "non_dovuto", label: "Non dovuto" },
-                        ]}
-                      />
-                    </Field>
-                  </div>
-                )}
-              </Section>
-            </Collapse>
-          )}
-
-          {f.stato !== "N" && (
-            <Collapse key="quota">
-              <Section n={isR ? 5 : 3} title="Quota servizio CIA" icon={<Wallet size={16} />}>
-                <div className="grid sm:grid-cols-[200px_1fr] gap-4 items-end">
-                  <Field label="Importo"><NumberInput value={f.quota_importo} onChange={(v) => set("quota_importo", v)} suffix="€" placeholder={p.quota_default != null ? String(p.quota_default) : ""} /></Field>
-                  <div
-                    onClick={() => set("quota_incassata", !f.quota_incassata)}
-                    className={clsx("h-12 rounded-xl border px-4 flex items-center gap-3 cursor-pointer select-none transition-colors", f.quota_incassata ? "border-brand-200 bg-brand-50" : "border-ink-200 hover:border-ink-300")}
-                  >
-                    <Toggle checked={!!f.quota_incassata} onChange={(v) => set("quota_incassata", v)} size="sm" />
-                    <span className="font-semibold text-[14px] flex-1">{f.quota_incassata ? "Incassata" : "Da incassare"}</span>
-                    {f.quota_incassata && f.quota_importo != null && <span className="text-sm font-bold text-brand-800">{eur(f.quota_importo)}</span>}
-                  </div>
-                </div>
-                {f.quota_incassata && <div className="mt-4 max-w-xs"><Field label="Data incasso"><DatePicker value={f.quota_data} onChange={(v) => set("quota_data", v)} /></Field></div>}
+          {isR && litri && f.esito !== "X" && (
+            <Collapse key="litri">
+              <Section n={4} title="Assegnazione" icon={<FileCheck2 size={16} />}>
+                <div className="max-w-xs"><Field label="Litri assegnati"><NumberInput value={f.litri_assegnati} onChange={(v) => set("litri_assegnati", v == null ? null : Math.round(v))} suffix="L" decimals={0} /></Field></div>
               </Section>
             </Collapse>
           )}

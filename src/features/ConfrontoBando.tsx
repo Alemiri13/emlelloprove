@@ -90,7 +90,7 @@ export function ConfrontoBando({ open, onClose, pratica }: { open: boolean; onCl
         while (esist.has(id)) id = `${base}-${k++}`;
         await salva.mutateAsync({
           isNew: true, id, nome: b.nome.trim(), codice: b.codice, ente: b.ente, categoria: "bando", campagna: String(new Date().getFullYear()),
-          unita: "euro", ha_contributo: true, apertura: b.apertura, scadenza: b.scadenza, criteri: b.criteri, attivo: true, esempio: false,
+          unita: "euro", apertura: b.apertura, scadenza: b.scadenza, criteri: b.criteri, attivo: true, esempio: false,
           motivi_tipici: ["Requisiti di accesso non rispettati", "Documentazione incompleta", "Punteggio insufficiente in graduatoria", "Presentata fuori termine"],
           note: nomeFile ? `Requisiti letti automaticamente da «${nomeFile}»: verificarli sul testo ufficiale.` : null, ordine: pratiche.length + 1,
         });

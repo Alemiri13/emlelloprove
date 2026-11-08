@@ -334,7 +334,6 @@ function DomandeTab({ a }: { a: Azienda }) {
                 {p.scadenza && <span className={clsx(giorni != null && giorni >= 0 && giorni <= 15 && "text-red-600 font-semibold")}>Scadenza {fmtDate(p.scadenza)}{giorni != null && giorni >= 0 ? ` · ${relDays(giorni)}` : ""}</span>}
                 {d?.numero && <span>N. {d.numero}</span>}
                 {d && p.unita === "litri" && d.litri_assegnati != null && <span>{litri(d.litri_assegnati)}</span>}
-                {d && p.unita === "euro" && d.importo_richiesto != null && <span>Richiesto {eur(d.importo_richiesto)}</span>}
                 {!motivo && <span>{escluso ? "Esclusa manualmente" : "Non rientra nei requisiti"}</span>}
                 {motivo === "incluso" && !d && <span>Aggiunta manualmente</span>}
               </div>

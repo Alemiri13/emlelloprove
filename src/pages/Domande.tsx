@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ImportDomande } from "../features/import/ImportDomande";
 import { FileSpreadsheet, Ban, CalendarClock, Check, ChevronDown, ClipboardList, Download, PenLine, Plus, Printer, Send, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
-import { abbinate, ESITI, ORDINE_STATI, STATI, statoPagamento } from "../lib/domain";
-import { daysFromToday, eur, fmtDate, litri, normalizeSearch, relDays, titleCase } from "../lib/format";
+import { abbinate, ESITI, ORDINE_STATI, STATI } from "../lib/domain";
+import { daysFromToday, fmtDate, litri, normalizeSearch, relDays, titleCase } from "../lib/format";
 import { useAbbina, useSalvaDomanda, useStatoMultiplo } from "../lib/queries";
 import { Button } from "../components/ui/Button";
 import { Checkbox, SearchInput } from "../components/ui/Inputs";
@@ -32,7 +32,7 @@ export function DomandePage() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(80);
-  const [importa, setImporta] = useState(false);
+  const nav = useNavigate();
   useEffect(() => { setSel(new Set()); setFiltro("tutte"); setEsito(null); setLimit(80); }, [pratica?.id, ufficio.id]);
 
   // riepilogo per ogni pratica (per le card in alto)
@@ -78,11 +78,10 @@ export function DomandePage() {
 
   const exportCsv = () => {
     if (!pratica) return;
-    const rows = [["CUAA", "Denominazione", "Stato", "Numero", "Data", "Esito", "Richiesto", "Ammesso", "Pagato", "Litri assegnati", "Quota CIA", "Quota incassata"]];
+    const rows = [["CUAA", "Denominazione", "Stato", "Numero", "Data", "Esito", "Litri assegnati"]];
     filtrate.forEach(({ a, d }) => rows.push([
       a.cuaa, a.denominazione, STATI[d?.stato ?? "N"].label, d?.numero ?? "", d?.data_presentazione ? fmtDate(d.data_presentazione) : "",
-      d?.stato === "R" ? ESITI[d.esito].label : "", String(d?.importo_richiesto ?? ""), String(d?.importo_ammesso ?? ""), String(d?.importo_pagato ?? ""),
-      String(d?.litri_assegnati ?? ""), String(d?.quota_importo ?? ""), d ? (d.quota_incassata ? "SI" : "NO") : "",
+      d?.stato === "R" ? ESITI[d.esito].label : "", String(d?.litri_assegnati ?? ""),
     ]));
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
     const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
@@ -95,9 +94,8 @@ export function DomandePage() {
     return (
       <div>
         <PageHeader title="Domande" />
-        <div className="card"><Empty icon={<ClipboardList size={28} />} title="Nessuna pratica attiva" desc="Importa un Excel di domande scrivendo la tipologia, oppure crea una pratica." action={<Button icon={<FileSpreadsheet size={17} />} onClick={() => setImporta(true)}>Importa da Excel</Button>} /></div>
-        <ImportDomande open={importa} onClose={() => setImporta(false)} />
-      </div>
+        <div className="card"><Empty icon={<ClipboardList size={28} />} title="Nessuna pratica attiva" desc="Crea una pratica e carica l'elenco delle domande da fare." action={<Button icon={<Plus size={17} />} onClick={nuovaDomanda}>Nuova domanda</Button>} /></div>
+        </div>
     );
   }
 
@@ -108,8 +106,8 @@ export function DomandePage() {
         subtitle={`Chi ha fatto la domanda e chi no, pratica per pratica · ${ufficio.nome}`}
         action={
           <div className="flex gap-3">
-            <Button size="lg" variant="secondary" icon={<FileSpreadsheet size={18} />} onClick={() => setImporta(true)}>Importa da Excel</Button>
-            <Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={() => nuovaDomanda(pratica ? { praticaId: pratica.id } : undefined)}>Nuova domanda</Button>
+            {pratica && <Button size="lg" variant="secondary" icon={<FileSpreadsheet size={18} />} onClick={() => nav(`/u/${ufficio.id}/pratiche/${pratica.id}`)}>{pratica.modello ? "Carica le domande fatte" : "Carica l'elenco da fare"}</Button>}
+            <Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={nuovaDomanda}>Nuova domanda</Button>
           </div>
         }
       />
@@ -252,14 +250,12 @@ export function DomandePage() {
           <BulkBar sel={sel} clear={() => setSel(new Set())} pratica={pratica} />
         </>
       )}
-      <ImportDomande open={importa} onClose={() => setImporta(false)} />
     </div>
   );
 }
 
 function Riga({ a, d, p, i, selected, onSelect, onOpen, manuale }: { a: Azienda; d?: Domanda; p: Pratica; i: number; selected: boolean; onSelect: () => void; onOpen: () => void; manuale: boolean }) {
   const st = d?.stato ?? "N";
-  const pag = statoPagamento(d, p);
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -282,11 +278,9 @@ function Riga({ a, d, p, i, selected, onSelect, onOpen, manuale }: { a: Azienda;
         {st === "R" ? (
           <>
             <EsitoPill esito={d!.esito} className="!h-6 !text-[11px]" />
-            {p.unita === "litri" ? (d!.litri_assegnati != null && <span className="text-xs text-ink-500">{litri(d!.litri_assegnati)} assegnati</span>)
-              : pag && pag !== "attesa" ? <span className="text-xs"><PagamentoPillMini stato={pag} /> {d!.importo_pagato ? eur(d!.importo_pagato) : d!.importo_ammesso ? eur(d!.importo_ammesso) : ""}</span>
-                : d!.importo_richiesto ? <span className="text-xs text-ink-500">Richiesti {eur(d!.importo_richiesto)}</span> : null}
+            {p.unita === "litri" && d!.litri_assegnati != null && <span className="text-xs text-ink-500">{litri(d!.litri_assegnati)} assegnati</span>}
           </>
-        ) : d?.importo_richiesto ? <span className="text-xs text-ink-500">Richiesti {eur(d.importo_richiesto)}</span> : <span className="text-ink-300 text-sm">—</span>}
+        ) : <span className="text-ink-300 text-sm">—</span>}
       </div>
       <div className="w-40 flex justify-end" onClick={(e) => e.stopPropagation()}>
         <QuickStato a={a} p={p} stato={st} />
@@ -295,9 +289,6 @@ function Riga({ a, d, p, i, selected, onSelect, onOpen, manuale }: { a: Azienda;
   );
 }
 
-function PagamentoPillMini({ stato }: { stato: NonNullable<ReturnType<typeof statoPagamento>> }) {
-  return <span className="font-semibold text-ink-700">{stato === "pagata" ? "Pagata" : stato === "parziale" ? "Parziale" : stato === "non_pagata" ? "Da pagare" : ""}</span>;
-}
 
 const QUICK_ICON: Record<StatoDomanda, React.ReactNode> = { N: <Undo2 size={16} />, C: <PenLine size={16} />, S: <Printer size={16} />, R: <Send size={16} /> };
 

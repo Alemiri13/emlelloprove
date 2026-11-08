@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
-import { FileSpreadsheet, UploadCloud, X, Check, AlertTriangle } from "lucide-react";
+import { FileSpreadsheet, UploadCloud, X, AlertTriangle } from "lucide-react";
 import { useRef, useState } from "react";
 import clsx from "clsx";
 import { Select } from "../../components/ui/Select";
 import { fileSize } from "../../lib/format";
-import type { Tabella } from "../../lib/excel";
+import { Check as CheckIcon } from "lucide-react";
+import { testo, type Analisi, type CampoSpec } from "../../lib/excel";
 
 export function DropExcel({ file, onFile, fogli, foglio, onFoglio, righe, errore }: {
   file: File | null; onFile: (f: File | null) => void; fogli: string[]; foglio: string | null; onFoglio: (f: string) => void; righe?: number; errore?: string | null;
@@ -48,43 +49,6 @@ export function DropExcel({ file, onFile, fogli, foglio, onFoglio, righe, errore
   );
 }
 
-export interface CampoDef<K extends string> { k: K; l: string; obbligatorio?: boolean; hint?: string }
-
-/** Tabella di abbinamento campo → colonna del file, con anteprima dei valori. */
-export function MappaColonne<K extends string>({ campi, tabella, mappa, onChange }: {
-  campi: CampoDef<K>[]; tabella: Tabella; mappa: Partial<Record<K, number>>; onChange: (k: K, col: number | null) => void;
-}) {
-  const opzioni = [{ value: "-1", label: "— non importare —" }, ...tabella.intestazioni.map((h, i) => ({ value: String(i), label: h, hint: anteprima(tabella, i) }))];
-  return (
-    <div className="rounded-2xl ring-1 ring-ink-100 divide-y divide-ink-100">
-      {campi.map((c) => {
-        const col = mappa[c.k];
-        return (
-          <div key={c.k} className="flex items-center gap-4 px-4 py-2.5">
-            <span className={clsx("h-6 w-6 rounded-full grid place-items-center shrink-0", col != null ? "bg-brand-600 text-white" : c.obbligatorio ? "bg-red-50 text-red-500" : "bg-ink-100 text-ink-300")}>
-              {col != null ? <Check size={13} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}
-            </span>
-            <div className="w-44 shrink-0">
-              <div className="text-[14px] font-semibold">{c.l}{c.obbligatorio && <span className="text-red-500"> *</span>}</div>
-              {c.hint && <div className="text-[11.5px] text-ink-400 leading-tight">{c.hint}</div>}
-            </div>
-            <Select size="sm" className="flex-1 min-w-0" value={col == null ? "-1" : String(col)} onChange={(v) => onChange(c.k, v === "-1" ? null : Number(v))} options={opzioni} menuMinWidth={280} />
-            <div className="hidden md:block w-48 text-[12px] text-ink-500 truncate font-mono">{col != null ? anteprima(tabella, col) : ""}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function anteprima(t: Tabella, i: number) {
-  return t.righe.slice(0, 3).map((r) => {
-    const v = r[i];
-    if (v instanceof Date) return v.toLocaleDateString("it-IT");
-    return v == null ? "" : String(v);
-  }).filter(Boolean).join(" · ");
-}
-
 export function Avanzamento({ msg, p }: { msg: string; p: number }) {
   return (
     <div className="py-10 text-center">
@@ -108,4 +72,39 @@ export function Numero({ v, l, tone = "neutral", onClick, attivo }: { v: number;
       <div className="text-[26px] font-extrabold tabular-nums tracking-tight leading-tight">{v}</div>
     </button>
   );
+}
+
+/** Abbinamento campo → colonna basato sull'analisi automatica (confidenza e motivazione per ogni campo). */
+export function MappaAnalisi<K extends string>({ campi, analisi, onChange }: {
+  campi: CampoSpec<K>[]; analisi: Analisi<K>; onChange: (k: K, col: number | null) => void;
+}) {
+  const opzioni = [{ value: "-1", label: "— non importare —" }, ...analisi.intestazioni.map((h, i) => ({ value: String(i), label: h, hint: analisi.righe.slice(0, 3).map((r) => testo(r[i]) ?? "").filter(Boolean).join(" · ") }))];
+  return (
+    <div className="rounded-2xl ring-1 ring-ink-100 divide-y divide-ink-100">
+      {campi.map((c) => {
+        const m = analisi.mappa[c.k];
+        return (
+          <div key={c.k} className="flex items-center gap-3 px-4 py-2.5">
+            <span className={clsx("h-6 w-6 rounded-full grid place-items-center shrink-0", m ? (m.confidenza >= 0.7 ? "bg-brand-600 text-white" : "bg-amber-400 text-white") : c.obbligatorio ? "bg-red-50 text-red-500" : "bg-ink-100 text-ink-300")}>
+              {m ? <CheckIcon size={13} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}
+            </span>
+            <div className="w-44 shrink-0">
+              <div className="text-[14px] font-semibold">{c.etichetta}{c.obbligatorio && <span className="text-red-500"> *</span>}</div>
+              <div className="text-[11px] text-ink-400 leading-tight truncate" title={m?.perche}>{m?.perche || c.hint || ""}</div>
+            </div>
+            <Select size="sm" className="flex-1 min-w-0" value={m ? String(m.col) : "-1"} onChange={(v) => onChange(c.k, v === "-1" ? null : Number(v))} options={opzioni} menuMinWidth={300} />
+            <span className={clsx("hidden sm:block w-12 text-right text-[12px] font-bold tabular-nums", !m ? "text-ink-300" : m.confidenza >= 0.7 ? "text-brand-700" : "text-amber-600")}>{m ? `${Math.round(m.confidenza * 100)}%` : ""}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Applica una scelta manuale alla mappa (una colonna = un campo). */
+export function conScelta<K extends string>(a: Analisi<K>, k: K, col: number | null): Analisi<K> {
+  const mappa = { ...a.mappa };
+  for (const kk of Object.keys(mappa) as K[]) if (col != null && mappa[kk]?.col === col) delete mappa[kk];
+  if (col == null) delete mappa[k]; else mappa[k] = { col, confidenza: 1, perche: "scelta a mano" };
+  return { ...a, mappa };
 }

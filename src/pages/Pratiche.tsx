@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
 import { ConfrontoBando } from "../features/ConfrontoBando";
-import { Scale, BadgeCheck, CalendarClock, Check, FileStack, Leaf, Pencil, Plus, Tractor, Trash2, Wallet, X, Droplets, Euro } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Scale, BadgeCheck, CalendarClock, Check, FileStack, FileSpreadsheet, Leaf, Pencil, Plus, Tractor, Trash2, X, Droplets } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { useUfficio } from "../lib/ufficio";
+import { useModals, useUfficio } from "../lib/ufficio";
 import { abbinate, descriviCriteri } from "../lib/domain";
-import { daysFromToday, eur, fmtDate, relDays } from "../lib/format";
+import { daysFromToday, fmtDate, relDays } from "../lib/format";
 import { useEliminaPratica, useSalvaPratica } from "../lib/queries";
 import { Button } from "../components/ui/Button";
 import { ChoiceCard, Field, NumberInput, TextArea, TextInput, Toggle, ToggleCard } from "../components/ui/Inputs";
@@ -21,6 +22,8 @@ export function PratichePage() {
   const { pratiche, aziende, abbinamenti, domande, domandaByKey, colturaById, ufficio } = useUfficio();
   const [edit, setEdit] = useState<Pratica | "new" | null>(null);
   const [confronto, setConfronto] = useState<Pratica | "nuovo" | null>(null);
+  const nav = useNavigate();
+  const { nuovaDomanda } = useModals();
   const salva = useSalvaPratica();
   const nomiColture = useMemo(() => Object.fromEntries([...colturaById.values()].map((c) => [c.id, c.nome])), [colturaById]);
 
@@ -31,7 +34,7 @@ export function PratichePage() {
         subtitle="Scadenze, requisiti e quote: valgono per tutti e tre gli uffici"
         action={
           <div className="flex gap-3">
-            <Button size="lg" variant="secondary" icon={<Plus size={18} />} onClick={() => setEdit("new")}>Nuova pratica</Button>
+            <Button size="lg" variant="secondary" icon={<Plus size={18} />} onClick={nuovaDomanda}>Nuova pratica</Button>
             <Button size="lg" icon={<Scale size={18} />} onClick={() => setConfronto("nuovo")}>Carica bando</Button>
           </div>
         }
@@ -47,7 +50,8 @@ export function PratichePage() {
               key={p.id}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0, transition: { delay: i * 0.04 } }}
-              className={clsx("card p-6 flex flex-col", !p.attivo && "opacity-60")}
+              onClick={() => nav(p.id)}
+              className={clsx("group card p-6 flex flex-col cursor-pointer hover:shadow-lift hover:border-ink-200 transition-shadow duration-300", !p.attivo && "opacity-60")}
             >
               <div className="flex items-start gap-4">
                 <span className={clsx("h-14 w-14 rounded-2xl grid place-items-center shrink-0 text-[12px] font-extrabold", p.categoria === "bando" ? "bg-amber-50 text-amber-700" : "bg-brand-50 text-brand-800")}>
@@ -64,13 +68,13 @@ export function PratichePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Toggle checked={p.attivo} onChange={(v) => salva.mutate({ id: p.id, attivo: v })} size="sm" />
-                  <Button variant="ghost" size="icon-sm" onClick={() => setEdit(p)} aria-label="Modifica"><Pencil size={16} /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={(e) => { e.stopPropagation(); setEdit(p); }} aria-label="Modifica"><Pencil size={16} /></Button>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-5">
                 <Stat icon={<CalendarClock size={14} />} label="Scadenza" value={p.scadenza ? fmtDate(p.scadenza) : "—"} sub={g != null ? (g < 0 ? "Chiusa" : relDays(g)) : undefined} alert={g != null && g >= 0 && g <= 15} />
-                <Stat icon={<Wallet size={14} />} label="Quota CIA" value={p.quota_default != null ? eur(p.quota_default) : "—"} />
-                <Stat icon={p.unita === "litri" ? <Droplets size={14} /> : <Euro size={14} />} label="Misura" value={p.unita === "litri" ? "Litri" : p.ha_contributo ? "Contributo" : "Senza importi"} />
+                <Stat icon={<FileSpreadsheet size={14} />} label="Elenco da fare" value={p.modello ? "Caricato" : "Da caricare"} alert={!p.modello} />
+                <Stat icon={<Check size={14} />} label="Fatte" value={ab.size ? `${counts.R} su ${ab.size}` : "—"} sub={ab.size ? `${Math.round((counts.R / ab.size) * 100)}%` : undefined} />
               </div>
               <div className="flex flex-wrap gap-1.5 mt-4">
                 {descriviCriteri(p, nomiColture).map((c) => <span key={c} className="chip bg-ink-50 text-ink-600">{c}</span>)}
@@ -81,7 +85,10 @@ export function PratichePage() {
                   <span className="font-semibold text-ink-700">{counts.R} rilasciate</span>
                 </div>
                 <ProgressStati counts={counts} total={ab.size} height={7} />
-                <Button variant="soft" size="sm" className="mt-4 w-full" icon={<Scale size={15} />} onClick={() => setConfronto(p)}>Confronta le aziende con i requisiti</Button>
+                <div className="mt-4 flex gap-2">
+                  <Button variant="soft" size="sm" className="flex-1" icon={<FileSpreadsheet size={15} />} onClick={(e) => { e.stopPropagation(); nav(p.id); }}>{p.modello ? "Apri e carica le fatte" : "Carica l'elenco da fare"}</Button>
+                  <Button variant="secondary" size="sm" icon={<Scale size={15} />} onClick={(e) => { e.stopPropagation(); setConfronto(p); }}>Requisiti</Button>
+                </div>
               </div>
             </motion.div>
           );
@@ -112,7 +119,7 @@ function slugify(s: string) {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "pratica-" + Date.now();
 }
 
-function PraticaEditor({ value, onClose }: { value: Pratica | "new" | null; onClose: () => void }) {
+export function PraticaEditor({ value, onClose }: { value: Pratica | "new" | null; onClose: () => void }) {
   const { colture, pratiche } = useUfficio();
   const salva = useSalvaPratica();
   const elimina = useEliminaPratica();
@@ -127,7 +134,7 @@ function PraticaEditor({ value, onClose }: { value: Pratica | "new" | null; onCl
     if (!value) return;
     setStep(0); setMotivo("");
     if (value === "new") {
-      setF({ nome: "", codice: "", categoria: "annuale", ente: "", campagna: String(new Date().getFullYear()), unita: "euro", ha_contributo: true, apertura: null, scadenza: null, quota_default: null, motivi_tipici: ["Documentazione incompleta", "Fascicolo aziendale non validato", "Presentata fuori termine"], note: "", attivo: true });
+      setF({ nome: "", codice: "", categoria: "annuale", ente: "", campagna: String(new Date().getFullYear()), unita: "euro", apertura: null, scadenza: null, motivi_tipici: ["Documentazione incompleta", "Fascicolo aziendale non validato", "Presentata fuori termine"], note: "", attivo: true });
       setCrit({ tipo: "tutti" });
     } else { setF({ ...value }); setCrit({ ...value.criteri }); }
   }, [value]);
@@ -141,7 +148,7 @@ function PraticaEditor({ value, onClose }: { value: Pratica | "new" | null; onCl
     try {
       await salva.mutateAsync({
         isNew, id, nome: f.nome!.trim(), codice: f.codice?.trim() || null, categoria: f.categoria, ente: f.ente?.trim() || null, campagna: f.campagna?.trim() || null,
-        unita: f.unita, ha_contributo: f.unita === "litri" ? false : f.ha_contributo, apertura: f.apertura ?? null, scadenza: f.scadenza ?? null, quota_default: f.quota_default ?? null,
+        unita: f.unita, apertura: f.apertura ?? null, scadenza: f.scadenza ?? null,
         motivi_tipici: f.motivi_tipici ?? [], criteri: crit, note: f.note?.trim() || null, attivo: f.attivo ?? true, esempio: isNew ? false : f.esempio,
         ...(isNew ? { ordine: pratiche.length + 1 } : {}),
       });
@@ -187,25 +194,17 @@ function PraticaEditor({ value, onClose }: { value: Pratica | "new" | null; onCl
                 <ChoiceCard selected={f.categoria === "bando"} onClick={() => set("categoria", "bando")} icon={<FileStack size={20} />} title="Bando" desc="Con apertura e chiusura" />
               </div>
               <div>
-                <span className="label">Cosa si misura</span>
-                <Segmented
-                  full
-                  size="lg"
-                  value={f.unita === "litri" ? "litri" : f.ha_contributo ? "euro" : "nessuno"}
-                  onChange={(v) => { if (v === "litri") { set("unita", "litri"); set("ha_contributo", false); } else { set("unita", "euro"); set("ha_contributo", v === "euro"); } }}
-                  options={[{ value: "euro", label: "Contributo in €", icon: <Euro size={15} /> }, { value: "litri", label: "Litri (UMA)", icon: <Droplets size={15} /> }, { value: "nessuno", label: "Nessun importo" }]}
-                />
+                <ToggleCard checked={f.unita === "litri"} onChange={(v) => set("unita", v ? "litri" : "euro")} icon={<Droplets size={20} />} title="Assegnazione in litri (UMA)" desc="Per il gasolio agricolo: nelle domande si registrano i litri assegnati" />
               </div>
             </div>
           ),
         },
         {
-          key: "date", title: "Scadenze", question: "Quando e quanto?", hint: "La quota servizio CIA viene proposta in automatico quando una domanda viene rilasciata.",
+          key: "date", title: "Scadenze", question: "Quando?",
           content: (
             <div className="grid sm:grid-cols-2 gap-5">
               <Field label="Apertura" optional><DatePicker value={f.apertura} onChange={(v) => set("apertura", v)} /></Field>
               <Field label="Scadenza" optional><DatePicker value={f.scadenza} onChange={(v) => set("scadenza", v)} /></Field>
-              <Field label="Quota servizio CIA" optional><NumberInput value={f.quota_default} onChange={(v) => set("quota_default", v)} suffix="€" /></Field>
               <Field label="Note" className="sm:col-span-2" optional><TextArea value={f.note ?? ""} onChange={(e) => set("note", e.target.value)} className="!min-h-[80px]" /></Field>
             </div>
           ),

@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Abbinamento, Azienda, Coltura, Domanda, Pratica, Ufficio } from "./types";
+import type { Abbinamento, Azienda, Caricamento, Coltura, Domanda, Pratica, Ufficio } from "./types";
 
 export interface UfficioData {
   ufficio: Ufficio;
@@ -9,6 +9,7 @@ export interface UfficioData {
   pratiche: Pratica[];
   colture: Coltura[];
   abbinamenti: Abbinamento[];
+  caricamenti: Caricamento[];
   loading: boolean;
   azById: Map<string, Azienda>;
   praticaById: Map<string, Pratica>;
@@ -22,7 +23,7 @@ export interface ModalsApi {
   apriAzienda: (id: string, tab?: string) => void;
   apriDomanda: (aziendaId: string, praticaId: string) => void;
   nuovaAzienda: () => void;
-  nuovaDomanda: (prefill?: { aziendaId?: string; praticaId?: string }) => void;
+  nuovaDomanda: () => void;
 }
 export const ModalsCtx = createContext<ModalsApi>(null!);
 export const useModals = () => useContext(ModalsCtx);
