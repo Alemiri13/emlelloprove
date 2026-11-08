@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { BadgeCheck, CalendarClock, Check, FileStack, Leaf, Pencil, Plus, Tractor, Trash2, Wallet, X, Droplets, Euro } from "lucide-react";
+import { ConfrontoBando } from "../features/ConfrontoBando";
+import { Scale, BadgeCheck, CalendarClock, Check, FileStack, Leaf, Pencil, Plus, Tractor, Trash2, Wallet, X, Droplets, Euro } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useUfficio } from "../lib/ufficio";
@@ -19,6 +20,7 @@ import type { Criteri, Pratica, StatoDomanda } from "../lib/types";
 export function PratichePage() {
   const { pratiche, aziende, abbinamenti, domande, domandaByKey, colturaById, ufficio } = useUfficio();
   const [edit, setEdit] = useState<Pratica | "new" | null>(null);
+  const [confronto, setConfronto] = useState<Pratica | "nuovo" | null>(null);
   const salva = useSalvaPratica();
   const nomiColture = useMemo(() => Object.fromEntries([...colturaById.values()].map((c) => [c.id, c.nome])), [colturaById]);
 
@@ -27,7 +29,12 @@ export function PratichePage() {
       <PageHeader
         title="Pratiche e bandi"
         subtitle="Scadenze, requisiti e quote: valgono per tutti e tre gli uffici"
-        action={<Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={() => setEdit("new")}>Nuova pratica</Button>}
+        action={
+          <div className="flex gap-3">
+            <Button size="lg" variant="secondary" icon={<Plus size={18} />} onClick={() => setEdit("new")}>Nuova pratica</Button>
+            <Button size="lg" icon={<Scale size={18} />} onClick={() => setConfronto("nuovo")}>Carica bando</Button>
+          </div>
+        }
       />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {pratiche.map((p, i) => {
@@ -74,12 +81,14 @@ export function PratichePage() {
                   <span className="font-semibold text-ink-700">{counts.R} rilasciate</span>
                 </div>
                 <ProgressStati counts={counts} total={ab.size} height={7} />
+                <Button variant="soft" size="sm" className="mt-4 w-full" icon={<Scale size={15} />} onClick={() => setConfronto(p)}>Confronta le aziende con i requisiti</Button>
               </div>
             </motion.div>
           );
         })}
       </div>
       <PraticaEditor value={edit} onClose={() => setEdit(null)} />
+      <ConfrontoBando open={!!confronto} onClose={() => setConfronto(null)} pratica={confronto && confronto !== "nuovo" ? confronto : null} />
     </div>
   );
 }

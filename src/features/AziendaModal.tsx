@@ -21,6 +21,7 @@ import { useFeedback } from "../components/ui/Feedback";
 import { Skeleton } from "../components/ui/Spinner";
 import { DocumentoModal } from "./DocumentoModal";
 import { CaricamentoIntelligente } from "./CaricamentoIntelligente";
+import { DocumentoPreview } from "./DocumentoPreview";
 import type { Azienda, Documento } from "../lib/types";
 
 type Tab = "scheda" | "colture" | "domande" | "documenti" | "storico";
@@ -360,6 +361,7 @@ function DomandeTab({ a }: { a: Azienda }) {
 function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; loading: boolean }) {
   const [upload, setUpload] = useState(false);
   const [smart, setSmart] = useState(false);
+  const [preview, setPreview] = useState<Documento | null>(null);
   const elimina = useEliminaDocumento();
   const { toast, confirm } = useFeedback();
   const kit = KIT.filter((k) => !k.soloPG || a.tipo === "PG").map((k) => ({ ...k, ok: (docs ?? []).some(k.t) }));
@@ -400,10 +402,10 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
               const st = statoDocumento(d);
               const cat = CATEGORIE_DOC.find((c) => c.k === d.categoria);
               return (
-                <div key={d.id} className="flex items-center gap-4 px-5 py-4 group">
-                  <span className="h-11 w-11 rounded-xl bg-brand-50 text-brand-800 grid place-items-center shrink-0"><FileText size={20} /></span>
+                <div key={d.id} onClick={() => setPreview(d)} className="flex items-center gap-4 px-5 py-4 group cursor-pointer hover:bg-ink-50/70 transition-colors">
+                  <span className="h-11 w-11 rounded-xl bg-brand-50 text-brand-800 grid place-items-center shrink-0 group-hover:bg-brand-700 group-hover:text-white transition-colors"><FileText size={20} /></span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">{d.titolo}</div>
+                    <div className="font-semibold truncate group-hover:text-brand-900">{d.titolo}</div>
                     <div className="text-xs text-ink-500 flex gap-2 flex-wrap mt-0.5">
                       <span>{d.tipo}</span>
                       {cat && <span className="text-ink-300">·</span>}
@@ -421,10 +423,10 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
                     </Badge>
                   )}
                   {d.storage_path && (
-                    <button onClick={() => apriDocumento(d).catch((e) => toast("error", "Impossibile aprire", e.message))} className="h-10 w-10 grid place-items-center rounded-xl text-ink-500 hover:text-brand-800 hover:bg-brand-50 transition" title="Apri"><Download size={17} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); apriDocumento(d).catch((err) => toast("error", "Impossibile aprire", err.message)); }} className="h-10 w-10 grid place-items-center rounded-xl text-ink-500 hover:text-brand-800 hover:bg-brand-50 transition" title="Apri in una nuova scheda"><Download size={17} /></button>
                   )}
                   <button
-                    onClick={async () => { if (await confirm({ title: "Eliminare il documento?", message: d.titolo, danger: true, confirmLabel: "Elimina" })) elimina.mutate(d); }}
+                    onClick={async (e) => { e.stopPropagation(); if (await confirm({ title: "Eliminare il documento?", message: d.titolo, danger: true, confirmLabel: "Elimina" })) elimina.mutate(d); }}
                     className="h-10 w-10 grid place-items-center rounded-xl text-ink-400 hover:text-red-600 hover:bg-red-50 transition opacity-0 group-hover:opacity-100"
                     title="Elimina"
                   ><Trash2 size={17} /></button>
@@ -436,6 +438,7 @@ function DocumentiTab({ a, docs, loading }: { a: Azienda; docs?: Documento[]; lo
       </div>
       <DocumentoModal open={upload} onClose={() => setUpload(false)} azienda={a} />
       <CaricamentoIntelligente open={smart} onClose={() => setSmart(false)} aziendaId={a.id} />
+      <DocumentoPreview doc={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

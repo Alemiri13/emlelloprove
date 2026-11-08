@@ -46,7 +46,7 @@ export function Wizard({ open, onClose, steps, index, setIndex, onFinish, finish
                   className={clsx("group flex-1 text-left", i < index ? "cursor-pointer" : "cursor-default")}
                 >
                   <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
-                    <motion.div className="h-full bg-brand-600 rounded-full" initial={false} animate={{ width: i < index ? "100%" : i === index ? "50%" : "0%" }} transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }} />
+                    <motion.div className="h-full bg-brand-600 rounded-full" initial={false} animate={{ width: i < index || steps.length === 1 ? "100%" : i === index ? "50%" : "0%" }} transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }} />
                   </div>
                   <div className={clsx("mt-2 text-[11.5px] font-semibold truncate hidden sm:flex items-center gap-1 transition-colors", i === index ? "text-brand-800" : i < index ? "text-ink-500 group-hover:text-ink-800" : "text-ink-300")}>
                     {i < index && <Check size={12} strokeWidth={3} />}

@@ -10,6 +10,7 @@ import { fmtDateLong, ha, titleCase } from "../lib/format";
 import { cercaCuaa, useSalvaAzienda } from "../lib/queries";
 import { useModals, useUfficio } from "../lib/ufficio";
 import { CATEGORIE_COLTURE } from "../lib/domain";
+import type { Azienda } from "../lib/types";
 
 export function NuovaAziendaWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { ufficio, uffici, colture } = useUfficio();
@@ -18,7 +19,8 @@ export function NuovaAziendaWizard({ open, onClose }: { open: boolean; onClose: 
   const { toast } = useFeedback();
   const [step, setStep] = useState(0);
   const [cuaa, setCuaa] = useState("");
-  const [dup, setDup] = useState<{ denominazione: string; ufficio_id: string } | null | "checking">(null);
+  const [dup, setDup] = useState<Azienda | null | "checking">(null);
+  const [altrove, setAltrove] = useState<Azienda | null>(null);
   const [den, setDen] = useState("");
   const [comune, setComune] = useState("");
   const [indirizzo, setIndirizzo] = useState("");
@@ -34,7 +36,7 @@ export function NuovaAziendaWizard({ open, onClose }: { open: boolean; onClose: 
 
   useEffect(() => {
     if (open) {
-      setStep(0); setCuaa(""); setDup(null); setDen(""); setComune(""); setIndirizzo(""); setCap(""); setTel(""); setEmail(""); setPec("");
+      setStep(0); setCuaa(""); setDup(null); setAltrove(null); setDen(""); setComune(""); setIndirizzo(""); setCap(""); setTel(""); setEmail(""); setPec("");
       setSau(null); setBio(false); setIap(false); setUma(false); setColt({});
     }
   }, [open]);
@@ -46,7 +48,19 @@ export function NuovaAziendaWizard({ open, onClose }: { open: boolean; onClose: 
     if (!info?.valido) { setDup(null); return; }
     setDup("checking");
     const t = setTimeout(async () => {
-      try { setDup(await cercaCuaa(c)); } catch { setDup(null); }
+      try {
+        const trovate = await cercaCuaa(c);
+        setDup(trovate.find((x) => x.ufficio_id === ufficio.id) ?? null);
+        const altra = trovate.find((x) => x.ufficio_id !== ufficio.id) ?? null;
+        setAltrove(altra);
+        // dati già noti in un altro ufficio: li ricopio
+        if (altra && !trovate.some((x) => x.ufficio_id === ufficio.id)) {
+          setDen(altra.denominazione); setComune(altra.comune ?? ""); setIndirizzo(altra.indirizzo ?? ""); setCap(altra.cap ?? "");
+          setTel(altra.telefono ?? ""); setEmail(altra.email ?? ""); setPec(altra.pec ?? ""); setSau(altra.sau_ha);
+          setBio(altra.biologico); setIap(altra.iap); setUma(altra.uma);
+          setColt(Object.fromEntries((altra.azienda_colture ?? []).map((x) => [x.coltura_id, x.superficie_ha])));
+        }
+      } catch { setDup(null); }
     }, 300);
     return () => clearTimeout(t);
   }, [c, info?.valido]);
@@ -134,7 +148,13 @@ export function NuovaAziendaWizard({ open, onClose }: { open: boolean; onClose: 
                     {dup && dup !== "checking" && (
                       <div className="mt-3 rounded-2xl bg-amber-50 text-amber-800 px-5 py-4 text-sm font-medium flex items-center gap-3">
                         <AlertTriangle size={18} />
-                        <span>Questo CUAA è già registrato: <b>{titleCase(dup.denominazione)}</b> (ufficio di {nomeUfficio(dup.ufficio_id)}).</span>
+                        <span>Questo CUAA è già nell'anagrafica di {ufficio.nome}: <b>{titleCase(dup.denominazione)}</b>.</span>
+                      </div>
+                    )}
+                    {!dup && altrove && (
+                      <div className="mt-3 rounded-2xl bg-blue-50 text-blue-800 px-5 py-4 text-sm font-medium flex items-center gap-3">
+                        <Check size={18} />
+                        <span>Presente anche nell'ufficio di {nomeUfficio(altrove.ufficio_id)} come <b>{titleCase(altrove.denominazione)}</b>: ho ricopiato i suoi dati, puoi controllarli nei passi successivi.</span>
                       </div>
                     )}
                   </motion.div>

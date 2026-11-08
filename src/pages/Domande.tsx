@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Ban, CalendarClock, Check, ChevronDown, ClipboardList, Download, PenLine, Plus, Printer, Send, Undo2, X } from "lucide-react";
+import { ImportDomande } from "../features/import/ImportDomande";
+import { FileSpreadsheet, Ban, CalendarClock, Check, ChevronDown, ClipboardList, Download, PenLine, Plus, Printer, Send, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useModals, useUfficio } from "../lib/ufficio";
@@ -31,6 +32,7 @@ export function DomandePage() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(80);
+  const [importa, setImporta] = useState(false);
   useEffect(() => { setSel(new Set()); setFiltro("tutte"); setEsito(null); setLimit(80); }, [pratica?.id, ufficio.id]);
 
   // riepilogo per ogni pratica (per le card in alto)
@@ -93,7 +95,8 @@ export function DomandePage() {
     return (
       <div>
         <PageHeader title="Domande" />
-        <div className="card"><Empty icon={<ClipboardList size={28} />} title="Nessuna pratica attiva" desc="Attiva o crea una pratica nella sezione Pratiche e bandi." /></div>
+        <div className="card"><Empty icon={<ClipboardList size={28} />} title="Nessuna pratica attiva" desc="Importa un Excel di domande scrivendo la tipologia, oppure crea una pratica." action={<Button icon={<FileSpreadsheet size={17} />} onClick={() => setImporta(true)}>Importa da Excel</Button>} /></div>
+        <ImportDomande open={importa} onClose={() => setImporta(false)} />
       </div>
     );
   }
@@ -103,7 +106,12 @@ export function DomandePage() {
       <PageHeader
         title="Domande"
         subtitle={`Chi ha fatto la domanda e chi no, pratica per pratica · ${ufficio.nome}`}
-        action={<Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={() => nuovaDomanda(pratica ? { praticaId: pratica.id } : undefined)}>Nuova domanda</Button>}
+        action={
+          <div className="flex gap-3">
+            <Button size="lg" variant="secondary" icon={<FileSpreadsheet size={18} />} onClick={() => setImporta(true)}>Importa da Excel</Button>
+            <Button size="lg" icon={<Plus size={19} strokeWidth={2.5} />} onClick={() => nuovaDomanda(pratica ? { praticaId: pratica.id } : undefined)}>Nuova domanda</Button>
+          </div>
+        }
       />
 
       {/* card pratiche */}
@@ -244,6 +252,7 @@ export function DomandePage() {
           <BulkBar sel={sel} clear={() => setSel(new Set())} pratica={pratica} />
         </>
       )}
+      <ImportDomande open={importa} onClose={() => setImporta(false)} />
     </div>
   );
 }

@@ -34,6 +34,23 @@ Da Home, Anagrafica o dalla scheda di un'azienda: si trascinano uno o più file 
 Tutto avviene nel browser, senza servizi esterni a pagamento. L'esito dell'analisi e il testo letto vengono salvati con il documento (`documenti.analisi`, `documenti.testo`).
 Il motore è in `src/lib/analisi/`; le prove con dati fittizi si lanciano con `npm run test:analisi`.
 
+## Import da Excel
+
+- **Aziende** (Anagrafica → *Importa Excel*): basta una colonna con il CUAA (e la denominazione per le nuove). Colonne riconosciute in automatico e correggibili; si sceglie in quali uffici inserirle. Le celle vuote non cancellano i dati esistenti; le colture citate vengono aggiunte al catalogo se mancano.
+- **Domande** (Domande → *Importa da Excel*): si scrive la tipologia di domanda (esistente o nuova), si carica l'elenco dei nominativi e lo stato viene letto dal file (o applicato a tutti). I CUAA sconosciuti diventano nuove aziende dell'ufficio. Al termine un riepilogo mostra, per ogni pratica, le domande fatte, stampate, in compilazione e non fatte, con l'elenco dei nominativi. Un file con più tipi di domanda viene gestito abbinando ogni tipo a una pratica.
+
+## Anagrafica per ufficio
+
+Ogni ufficio ha la propria anagrafica completa (stesso CUAA in più uffici, con domande e documenti separati). Le aziende si possono selezionare ed eliminare in blocco, solo dall'ufficio corrente o da tutti.
+
+## Bandi: confronto automatico
+
+In *Pratiche e bandi* → *Carica bando* si trascina il PDF del bando: vengono letti nome, codice intervento, ente, apertura, scadenza e requisiti (età, tipo di soggetto, biologico, IAP, superficie minima, comparti), ognuno con il passaggio del testo da cui deriva. Le aziende dell'ufficio vengono divise in idonee, da verificare (dati mancanti), quasi idonee (un solo requisito recuperabile) e non idonee. Lo stesso confronto è disponibile per ogni pratica esistente.
+
+## Anteprima documenti
+
+Cliccando un documento archiviato si apre l'anteprima: PDF pagina per pagina con zoom, immagini, fatture elettroniche impaginate, con i dati estratti a fianco.
+
 ## Deploy
 
 Vedi [DEPLOY.md](DEPLOY.md): branch principale su GitHub e pubblicazione su Vercel.

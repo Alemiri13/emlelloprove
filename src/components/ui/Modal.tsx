@@ -57,6 +57,8 @@ export function Modal({ open, onClose, children, size = "md", title, subtitle, i
     lockScroll();
     const prev = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => {
+      // se un campo ha già preso il focus (autoFocus) non lo rubo
+      if (panel.current && panel.current.contains(document.activeElement) && document.activeElement !== panel.current) return;
       const el = panel.current?.querySelector<HTMLElement>("[data-autofocus]") ?? panel.current;
       el?.focus({ preventScroll: true });
     }, 60);

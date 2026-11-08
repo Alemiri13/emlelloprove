@@ -23,7 +23,7 @@ export function tipoFile(f: File): "pdf" | "immagine" | "xml" | "testo" | "altro
 
 // ---------- pdf.js (caricato a richiesta) ----------
 let pdfjsPromise: Promise<typeof import("pdfjs-dist")> | null = null;
-async function pdfjs() {
+export async function pdfjs() {
   if (!pdfjsPromise) {
     pdfjsPromise = (async () => {
       const lib = await import("pdfjs-dist");

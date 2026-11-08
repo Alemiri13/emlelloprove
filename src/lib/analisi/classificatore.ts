@@ -381,7 +381,7 @@ export function trovaDate(t: string): DataTrovata[] {
   return out.sort((a, b) => a.pos - b.pos);
 }
 
-function dataDopo(t: string, date: DataTrovata[], re: RegExp, finestra = 70) {
+export function dataDopo(t: string, date: DataTrovata[], re: RegExp, finestra = 70) {
   for (const m of t.matchAll(re)) {
     const fine = m.index! + m[0].length;
     const d = date.find((x) => x.pos >= m.index! && x.pos - fine <= finestra);
@@ -393,7 +393,7 @@ function dataDopo(t: string, date: DataTrovata[], re: RegExp, finestra = 70) {
 // ======================================================================
 // Altri campi
 // ======================================================================
-function numeroIt(s: string) {
+export function numeroIt(s: string) {
   const v = s.replace(/\s/g, "");
   if (/^\d{1,3}(\.\d{3})*(,\d+)?$/.test(v)) return Number(v.replace(/\./g, "").replace(",", "."));
   if (/^\d+(,\d+)?$/.test(v)) return Number(v.replace(",", "."));

@@ -33,18 +33,36 @@ export function useProfilo(userId: string | undefined) {
 }
 
 /** Conteggi per la schermata di scelta ufficio. */
+/** Legge tutte le righe superando il limite di 1000 per richiesta. */
+export async function tutte<T>(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>, pagina = 1000): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += pagina) {
+    const rows = check(await query(from, from + pagina - 1)) as T[];
+    out.push(...rows);
+    if (rows.length < pagina) break;
+  }
+  return out;
+}
+
+/** Conteggi per la schermata di scelta ufficio. */
 export function useRiepilogoUffici() {
   return useQuery({
     queryKey: ["riepilogo-uffici"],
     queryFn: async () => {
-      const az = check(await supabase.from("aziende").select("id, ufficio_id")) as { id: string; ufficio_id: string }[];
-      const dom = check(await supabase.from("domande").select("stato, azienda:aziende!inner(ufficio_id)")) as unknown as { stato: string; azienda: { ufficio_id: string } }[];
+      const uffici = check(await supabase.from("uffici").select("id")) as { id: string }[];
       const out: Record<string, { aziende: number; aperte: number; rilasciate: number }> = {};
-      for (const a of az) (out[a.ufficio_id] ??= { aziende: 0, aperte: 0, rilasciate: 0 }).aziende++;
-      for (const d of dom) {
-        const o = (out[d.azienda.ufficio_id] ??= { aziende: 0, aperte: 0, rilasciate: 0 });
-        if (d.stato === "R") o.rilasciate++; else if (d.stato === "C" || d.stato === "S") o.aperte++;
-      }
+      await Promise.all(uffici.map(async (u) => {
+        const conta = async (stati?: string[]) => {
+          if (!stati) {
+            const r = await supabase.from("aziende").select("id", { count: "exact", head: true }).eq("ufficio_id", u.id);
+            return r.count ?? 0;
+          }
+          const r = await supabase.from("domande").select("id, azienda:aziende!inner(ufficio_id)", { count: "exact", head: true }).eq("azienda.ufficio_id", u.id).in("stato", stati);
+          return r.count ?? 0;
+        };
+        const [aziende, aperte, rilasciate] = await Promise.all([conta(), conta(["C", "S"]), conta(["R"])]);
+        out[u.id] = { aziende, aperte, rilasciate };
+      }));
       return out;
     },
   });
@@ -55,7 +73,7 @@ export function useAziende(ufficio: string | undefined) {
     queryKey: ["aziende", ufficio],
     enabled: !!ufficio,
     queryFn: async () => {
-      const rows = check(await supabase.from("aziende").select("*, azienda_colture(*)").eq("ufficio_id", ufficio!).order("denominazione")) as Azienda[];
+      const rows = await tutte<Azienda>((a, b) => supabase.from("aziende").select("*, azienda_colture(*)").eq("ufficio_id", ufficio!).order("denominazione").order("id").range(a, b));
       return rows.map(fixAzienda);
     },
   });
@@ -66,7 +84,7 @@ export function useDomande(ufficio: string | undefined) {
     queryKey: ["domande", ufficio],
     enabled: !!ufficio,
     queryFn: async () => {
-      const rows = check(await supabase.from("domande").select("*, azienda:aziende!inner(ufficio_id)").eq("azienda.ufficio_id", ufficio!)) as (Domanda & { azienda?: unknown })[];
+      const rows = await tutte<Domanda & { azienda?: unknown }>((a, b) => supabase.from("domande").select("*, azienda:aziende!inner(ufficio_id)").eq("azienda.ufficio_id", ufficio!).order("id").range(a, b));
       return rows.map(({ azienda: _a, ...d }) => fixDomanda(d as Domanda));
     },
   });
@@ -113,10 +131,9 @@ export function useDocumenti(aziendaId: string | undefined) {
 }
 
 /** Ricerca CUAA su tutti gli uffici (per evitare doppioni). */
+/** Ricerca CUAA in tutti gli uffici: serve a evitare doppioni e a ricopiare i dati già noti. */
 export async function cercaCuaa(cuaa: string) {
-  return check(await supabase.from("aziende").select("id, denominazione, ufficio_id").eq("cuaa", cuaa).maybeSingle()) as
-    | { id: string; denominazione: string; ufficio_id: string }
-    | null;
+  return check(await supabase.from("aziende").select("*").eq("cuaa", cuaa)) as Azienda[];
 }
 
 // ---------------- Scritture ----------------
@@ -143,11 +160,41 @@ export function useSalvaAzienda() {
   });
 }
 
+/** Elimina una o più aziende (con domande, colture e documenti, compresi i file archiviati). */
+export async function eliminaAziende(ids: string[]) {
+  for (let i = 0; i < ids.length; i += 200) {
+    const blocco = ids.slice(i, i + 200);
+    const docs = check(await supabase.from("documenti").select("storage_path").in("azienda_id", blocco)) as { storage_path: string | null }[];
+    const paths = docs.map((d) => d.storage_path).filter((x): x is string => !!x);
+    if (paths.length) await supabase.storage.from("documenti").remove(paths);
+    check(await supabase.from("aziende").delete().in("id", blocco));
+  }
+}
+
 export function useEliminaAzienda() {
   const inv = useInvalidate();
   return useMutation({
-    mutationFn: async (id: string) => { check(await supabase.from("aziende").delete().eq("id", id)); },
+    mutationFn: async (id: string) => eliminaAziende([id]),
     onSuccess: () => inv("aziende", "domande", "riepilogo-uffici"),
+  });
+}
+
+export function useEliminaAziende() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ ids, cuaaAltriUffici }: { ids: string[]; cuaaAltriUffici?: string[] }) => {
+      let tutti = [...ids];
+      if (cuaaAltriUffici?.length) {
+        for (let i = 0; i < cuaaAltriUffici.length; i += 200) {
+          const r = check(await supabase.from("aziende").select("id").in("cuaa", cuaaAltriUffici.slice(i, i + 200))) as { id: string }[];
+          tutti.push(...r.map((x) => x.id));
+        }
+        tutti = [...new Set(tutti)];
+      }
+      await eliminaAziende(tutti);
+      return tutti.length;
+    },
+    onSuccess: () => inv("aziende", "domande", "riepilogo-uffici", "abbinamenti"),
   });
 }
 
@@ -287,4 +334,12 @@ export async function apriDocumento(d: Documento) {
   const { data, error } = await supabase.storage.from("documenti").createSignedUrl(d.storage_path, 120);
   if (error) throw new Error(error.message);
   window.open(data.signedUrl, "_blank", "noopener");
+}
+
+/** Scarica il file archiviato (per l'anteprima). */
+export async function scaricaDocumento(d: Documento): Promise<Blob> {
+  if (!d.storage_path) throw new Error("Nessun file allegato");
+  const { data, error } = await supabase.storage.from("documenti").download(d.storage_path);
+  if (error) throw new Error(error.message);
+  return data;
 }
